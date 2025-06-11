@@ -22,7 +22,8 @@ const User = mongoose.models.User || mongoose.model("User", userSchema);
 app.use(cors({
     origin: [
         "http://localhost:8601",
-        "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app", // Your actual Vercel URL
+        "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app", // Previous Vercel URL
+        "https://scratch-dqqpfzm64-innow8s-projects.vercel.app", // New Vercel URL
         /\.vercel\.app$/ // This regex allows any Vercel app subdomain
     ],
     credentials: true,
