@@ -1,6 +1,6 @@
-# Scratch GUI Backend
+# inBlox Backend
 
-Backend API for Scratch GUI with authentication.
+Backend API for inBlox with authentication.
 
 ## Features
 

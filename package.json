@@ -1,7 +1,7 @@
 {
-  "name": "scratch-gui-backend",
+  "name": "inblox-backend",
   "version": "1.0.0",
-  "description": "Backend API for Scratch GUI with Authentication",
+  "description": "Backend API for inBlox with Authentication",
   "main": "backend-server.js",
   "scripts": {
     "start": "node backend-server.js",
