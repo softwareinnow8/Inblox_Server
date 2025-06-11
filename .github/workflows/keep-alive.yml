@@ -1,0 +1,28 @@
+name: Keep Render Backend Alive
+
+on:
+  schedule:
+    # Runs every 14 minutes (GitHub Actions minimum is 5 minutes)
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  ping-render-service:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend
+        run: |
+          echo "🔄 Pinging Render backend at $(date)"
+          response=$(curl -s -w "%{http_code}" https://innow8blocks-backend.onrender.com/ping)
+          http_code="${response: -3}"
+          
+          if [ "$http_code" = "200" ]; then
+            echo "✅ Backend is alive! Response code: $http_code"
+            echo "📊 Response: ${response%???}"
+          else
+            echo "⚠️ Backend responded with code: $http_code"
+            echo "🔄 Trying health endpoint as fallback..."
+            curl -f https://innow8blocks-backend.onrender.com/api/health || echo "❌ Health check also failed"
+          fi
+          
+          echo "✅ Keep-alive ping completed at $(date)"
