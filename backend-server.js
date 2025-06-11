@@ -23,7 +23,8 @@ app.use(cors({
     origin: [
         "http://localhost:8601",
         "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app", // Previous Vercel URL
-        "https://scratch-dqqpfzm64-innow8s-projects.vercel.app", // New Vercel URL
+        "https://scratch-dqqpfzm64-innow8s-projects.vercel.app", // Second Vercel URL
+        "https://scratch-gui-taupe-iota.vercel.app", // New Vercel URL causing the issue
         /\.vercel\.app$/ // This regex allows any Vercel app subdomain
     ],
     credentials: true,
