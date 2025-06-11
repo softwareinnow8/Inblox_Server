@@ -22,26 +22,76 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-// CORS configuration
+// Enhanced CORS configuration with better error handling
 app.use(
   cors({
-    origin: [
-      "http://localhost:8601",
-      "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app", // Previous Vercel URL
-      "https://scratch-dqqpfzm64-innow8s-projects.vercel.app", // Second Vercel URL
-      "https://scratch-gui-taupe-iota.vercel.app", // New Vercel URL causing the issue
-      "https://scratch-78jvrzbeb-innow8s-projects.vercel.app", // New URL
-      "https://inblox.in", // InBlox domain
-      "https://www.inblox.in", // InBlox www domain
-      "http://inblox.in", // InBlox domain (HTTP)
-      "http://www.inblox.in", // InBlox www domain (HTTP)
-      /\.vercel\.app$/, // This regex allows any Vercel app subdomain
-    ],
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      const allowedOrigins = [
+        "http://localhost:8601",
+        "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
+        "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
+        "https://scratch-gui-taupe-iota.vercel.app",
+        "https://scratch-78jvrzbeb-innow8s-projects.vercel.app",
+        "https://inblox.in",
+        "https://www.inblox.in",
+        "http://inblox.in",
+        "http://www.inblox.in",
+      ];
+
+      // Check if origin is in allowed list or matches Vercel pattern
+      if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      console.log(`CORS: Blocked origin: ${origin}`);
+      return callback(new Error("Not allowed by CORS"), false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    exposedHeaders: ["Content-Length", "X-Foo", "X-Bar"],
+    optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+    preflightContinue: false,
   })
 );
+
+// Handle preflight requests explicitly
+app.options("*", cors()); // Enable pre-flight for all routes
+
+// Additional CORS middleware to ensure headers are always set
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "http://localhost:8601",
+    "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
+    "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
+    "https://scratch-gui-taupe-iota.vercel.app",
+    "https://scratch-78jvrzbeb-innow8s-projects.vercel.app",
+    "https://inblox.in",
+    "https://www.inblox.in",
+    "http://inblox.in",
+    "http://www.inblox.in",
+  ];
+
+  if (allowedOrigins.includes(origin) || (origin && /\.vercel\.app$/.test(origin))) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin,X-Requested-With,Content-Type,Accept,Authorization"
+  );
+
+  // Log CORS info for debugging
+  console.log(`CORS: Request from origin: ${origin}`);
+
+  next();
+});
 
 app.use(express.json());
 
