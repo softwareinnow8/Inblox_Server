@@ -129,6 +129,15 @@ app.post("/api/signin", async (req, res) => {
     }
 });
 
+// Add this route to your backend-server.js to handle ping requests
+app.get("/ping", (req, res) => {
+    res.status(200).json({ 
+        status: "alive", 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Start server
 const startServer = async () => {
     await connectDB();
