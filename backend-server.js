@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = 3001; // Force backend to use port 3001
 
 // Import routes
 const authRoutes = require("./routes/auth");
@@ -30,6 +30,7 @@ app.use(
       if (!origin) return callback(null, true);
 
       const allowedOrigins = [
+        "http://localhost:3000",
         "http://localhost:8601",
         "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
         "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
@@ -65,6 +66,7 @@ app.options("*", cors()); // Enable pre-flight for all routes
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
+    "http://localhost:3000",
     "http://localhost:8601",
     "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
     "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
@@ -76,7 +78,10 @@ app.use((req, res, next) => {
     "http://www.inblox.in",
   ];
 
-  if (allowedOrigins.includes(origin) || (origin && /\.vercel\.app$/.test(origin))) {
+  if (
+    allowedOrigins.includes(origin) ||
+    (origin && /\.vercel\.app$/.test(origin))
+  ) {
     res.header("Access-Control-Allow-Origin", origin);
   }
 
@@ -144,6 +149,47 @@ app.get("/ping", (req, res) => {
     status: "alive",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+  });
+});
+
+// Add diagnostic endpoint to help debug the issue
+app.get("/", (req, res) => {
+  res.json({
+    message: "inBlox Backend is running!",
+    timestamp: new Date().toISOString(),
+    availableRoutes: [
+      "/api/auth/signin",
+      "/api/auth/signup",
+      "/api/auth/profile",
+      "/api/projects/my-projects",
+      "/api/health",
+      "/ping",
+    ],
+    env: process.env.NODE_ENV,
+    authRoutesLoaded: !!authRoutes,
+    projectRoutesLoaded: !!projectRoutes,
+  });
+});
+
+// Add detailed error logging for missing routes
+app.use("*", (req, res) => {
+  console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
+  console.log(
+    `Available routes: /api/auth/*, /api/projects/*, /api/health, /ping`
+  );
+  res.status(404).json({
+    error: "Route not found",
+    path: req.originalUrl,
+    method: req.method,
+    availableRoutes: [
+      "GET /",
+      "GET /api/health",
+      "GET /ping",
+      "POST /api/auth/signin",
+      "POST /api/auth/signup",
+      "GET /api/auth/profile",
+      "GET /api/projects/my-projects",
+    ],
   });
 });
 

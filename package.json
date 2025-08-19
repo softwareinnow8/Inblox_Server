@@ -5,17 +5,29 @@
   "main": "backend-server.js",
   "scripts": {
     "start": "node backend-server.js",
-    "dev": "nodemon backend-server.js"
+    "dev": "nodemon backend-server.js",
+    "build": "echo 'No build step required for Node.js'",
+    "test": "echo 'No tests specified'"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
-    "express": "^4.18.2",
-    "mongoose": "^6.10.0",
-    "jsonwebtoken": "^9.0.0"
+    "dotenv": "^16.5.0",
+    "express": "^4.18.3",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.15.1",
+    "serialport": "^12.0.0",
+    "socket.io": "^4.8.1"
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "files": [
+    "backend-server.js",
+    "routes/",
+    "models/",
+    "middleware/",
+    "package.json",
+    ".env.example"
+  ]
 }
