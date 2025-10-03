@@ -3,8 +3,13 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { exec } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const { promisify } = require("util");
 require("dotenv").config();
 
+const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
 
@@ -130,6 +135,79 @@ const connectDB = async () => {
     );
   }
 };
+
+// Arduino Compiler Endpoint - MUST be before catch-all route
+app.post("/api/compile", async (req, res) => {
+  const { code, board = "arduino:avr:uno" } = req.body;
+  
+  if (!code) {
+    return res.status(400).json({ error: "No code provided" });
+  }
+  
+  const tempDir = path.join(__dirname, "../temp", Date.now().toString());
+  const sketchPath = path.join(tempDir, "sketch");
+  const sketchFile = path.join(sketchPath, "sketch.ino");
+  
+  try {
+    fs.mkdirSync(sketchPath, { recursive: true });
+    fs.writeFileSync(sketchFile, code);
+    
+    console.log(`📝 Compiling sketch for ${board}...`);
+    
+    const { stdout, stderr } = await execAsync(
+      `C:\\arduino-cli\\arduino-cli.exe compile --fqbn ${board} "${sketchPath}" --output-dir "${tempDir}"`,
+      { timeout: 30000 }
+    );
+    
+    console.log("✅ Compilation successful");
+    
+    const hexFile = path.join(tempDir, "sketch.ino.hex");
+    const hexContent = fs.readFileSync(hexFile, "utf8");
+    const hexBytes = parseIntelHex(hexContent);
+    
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    
+    res.json({
+      success: true,
+      hex: hexContent,
+      bytes: Array.from(hexBytes),
+      size: hexBytes.length,
+    });
+  } catch (error) {
+    console.error("❌ Compilation failed:", error.message);
+    
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Parse Intel HEX format
+function parseIntelHex(hexString) {
+  const lines = hexString.trim().split("\n");
+  const bytes = [];
+  
+  for (const line of lines) {
+    if (line.startsWith(":")) {
+      const byteCount = parseInt(line.substr(1, 2), 16);
+      const recordType = parseInt(line.substr(7, 2), 16);
+      
+      if (recordType === 0x00) {
+        for (let i = 0; i < byteCount; i++) {
+          const byteValue = parseInt(line.substr(9 + i * 2, 2), 16);
+          bytes.push(byteValue);
+        }
+      }
+    }
+  }
+  
+  return new Uint8Array(bytes);
+}
 
 // Routes
 app.use("/api/auth", authRoutes);
