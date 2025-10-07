@@ -70,6 +70,57 @@ fi
 echo "🔧 Setting environment variables..."
 export NODE_ENV=production
 
+# Install Arduino CLI for production compilation
+echo "🔧 Installing Arduino CLI for production..."
+
+# Download and install arduino-cli
+ARDUINO_CLI_VERSION="0.35.3"
+ARDUINO_CLI_URL="https://downloads.arduino.cc/arduino-cli/arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+
+# Create arduino-cli directory
+mkdir -p /opt/render/project/src/arduino-cli
+cd /opt/render/project/src/arduino-cli
+
+# Download and extract arduino-cli
+echo "📥 Downloading arduino-cli ${ARDUINO_CLI_VERSION}..."
+curl -fsSL ${ARDUINO_CLI_URL} | tar -xz
+
+# Make executable and add to PATH
+chmod +x arduino-cli
+export PATH="/opt/render/project/src/arduino-cli:$PATH"
+
+# Verify installation
+if ./arduino-cli version; then
+    echo "✅ Arduino CLI installed successfully"
+else
+    echo "❌ Arduino CLI installation failed"
+    exit 1
+fi
+
+# Initialize arduino-cli config
+echo "⚙️ Initializing Arduino CLI configuration..."
+./arduino-cli config init --dest-dir /opt/render/project/src/.arduino15
+
+# Update core index
+echo "📥 Updating Arduino core index..."
+./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install Arduino AVR core
+echo "📦 Installing Arduino AVR core..."
+./arduino-cli core install arduino:avr --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Verify core installation
+if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "arduino:avr"; then
+    echo "✅ Arduino AVR core installed successfully"
+else
+    echo "❌ Arduino AVR core installation failed"
+    exit 1
+fi
+
+# Go back to server directory
+cd /opt/render/project/src
+
 echo "✅ All required files verified!"
-echo "🎯 Ready to start inBlox backend server..."
+echo "✅ Arduino CLI production setup complete!"
+echo "🎯 Ready to start inBlox backend server with Arduino compilation..."
 echo "📍 Server will be available at: https://innow8blocks-backend.onrender.com"

@@ -4,9 +4,10 @@
   "description": "Backend API for inBlox with Authentication",
   "main": "backend-server.js",
   "scripts": {
-    "start": "node backend-server.js",
+    "start": "bash start-production.sh",
+    "start:local": "node backend-server.js",
     "dev": "nodemon backend-server.js",
-    "build": "echo 'No build step required for Node.js'",
+    "build": "bash render-build.sh",
     "test": "echo 'No tests specified'"
   },
   "dependencies": {

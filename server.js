@@ -187,11 +187,26 @@ app.post("/api/compile", async (req, res) => {
     
     console.log(`📝 Compiling sketch for ${board}...`);
     
+    // Determine arduino-cli path based on environment
+    const isProduction = process.env.NODE_ENV === 'production';
+    const arduinoCliPath = isProduction 
+      ? '/opt/render/project/src/arduino-cli/arduino-cli'
+      : 'arduino-cli';
+    
+    const configFile = isProduction 
+      ? '/opt/render/project/src/.arduino15/arduino-cli.yaml'
+      : '';
+    
+    const configFlag = configFile ? `--config-file "${configFile}"` : '';
+    
+    console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
+    console.log(`⚙️ Environment: ${isProduction ? 'Production (Render)' : 'Development'}`);
+    
     // Compile with arduino-cli
-    const { stdout, stderr } = await execAsync(
-      `arduino-cli compile --fqbn ${board} "${sketchPath}" --output-dir "${tempDir}"`,
-      { timeout: 30000 }
-    );
+    const compileCommand = `"${arduinoCliPath}" compile --fqbn ${board} ${configFlag} "${sketchPath}" --output-dir "${tempDir}"`;
+    console.log(`📋 Command: ${compileCommand}`);
+    
+    const { stdout, stderr } = await execAsync(compileCommand, { timeout: 30000 });
     
     console.log("✅ Compilation successful");
     
