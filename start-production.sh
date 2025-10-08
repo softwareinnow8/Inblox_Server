@@ -29,7 +29,19 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
     if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
         echo "✅ Arduino AVR core is available"
     else
-        echo "⚠️ Arduino AVR core not found, but continuing..."
+        echo "⚠️ Arduino AVR core not found, attempting to install..."
+        
+        # Try to install AVR core
+        $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        $ARDUINO_CLI_PATH core install arduino:avr --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Check again
+        if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
+            echo "✅ Arduino AVR core installed successfully"
+        else
+            echo "⚠️ Arduino AVR core installation failed, but continuing..."
+            echo "💡 Compilation may not work - check build logs"
+        fi
     fi
 else
     echo "⚠️ Arduino CLI not found at expected location"

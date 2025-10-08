@@ -154,12 +154,34 @@ app.post("/api/compile", async (req, res) => {
     
     console.log(`📝 Compiling sketch for ${board}...`);
     
+    // Detect OS and use appropriate Arduino CLI path
+    const os = require('os');
+    const isWindows = os.platform() === 'win32';
+    const arduinoCliPath = isWindows 
+      ? 'C:\\arduino-cli\\arduino-cli.exe'
+      : '/opt/render/project/src/arduino-cli/arduino-cli';
+    
+    console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
+    console.log(`🖥️  Platform: ${os.platform()}`);
+    
+    // Check if Arduino CLI exists
+    if (!fs.existsSync(arduinoCliPath)) {
+      throw new Error(`Arduino CLI not found at ${arduinoCliPath}`);
+    }
+    
+    // Set config file path for Render
+    const configFile = isWindows 
+      ? '' 
+      : '--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml';
+    
     const { stdout, stderr } = await execAsync(
-      `C:\\arduino-cli\\arduino-cli.exe compile --fqbn ${board} "${sketchPath}" --output-dir "${tempDir}"`,
+      `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
       { timeout: 30000 }
     );
     
     console.log("✅ Compilation successful");
+    if (stdout) console.log("📋 Compiler output:", stdout);
+    if (stderr) console.log("⚠️  Compiler warnings:", stderr);
     
     const hexFile = path.join(tempDir, "sketch.ino.hex");
     const hexContent = fs.readFileSync(hexFile, "utf8");
