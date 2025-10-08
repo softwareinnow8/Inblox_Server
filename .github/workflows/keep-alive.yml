@@ -1,28 +1,18 @@
 name: Keep Render Backend Alive
 
 on:
-  schedule:
-    # Runs every 6 minutes to prevent Render inactivity
-    - cron: "*/6 * * * *"
-  workflow_dispatch: # Allows manual trigger
+    schedule:
+        # Runs every 10 minutes (Render free tier spins down after 15 min)
+        - cron: "*/10 * * * *"
+    workflow_dispatch: # Allows manual trigger from Actions tab
 
 jobs:
-  ping-render-service:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ping Render Backend
-        run: |
-          echo "🔄 Pinging Render backend at $(date)"
-          response=$(curl -s -w "%{http_code}" https://innow8blocks-backend.onrender.com/ping)
-          http_code="${response: -3}"
-
-          if [ "$http_code" = "200" ]; then
-            echo "✅ Backend is alive! Response code: $http_code"
-            echo "📊 Response: ${response%???}"
-          else
-            echo "⚠️ Backend responded with code: $http_code"
-            echo "🔄 Trying health endpoint as fallback..."
-            curl -f https://innow8blocks-backend.onrender.com/api/health || echo "❌ Health check also failed"
-          fi
-
-          echo "✅ Keep-alive ping completed at $(date)"
+    keep-alive:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Ping inBlox Backend
+              run: |
+                  echo "🏓 Pinging inBlox backend on Render..."
+                  curl -f https://innow8blocks-backend.onrender.com/ping || exit 1
+                  echo "✅ Backend alive and responding at $(date)"
+                  echo "⏰ Next check in 10 minutes"

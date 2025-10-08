@@ -139,56 +139,56 @@ const connectDB = async () => {
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", async (req, res) => {
   const { code, board = "arduino:avr:uno" } = req.body;
-  
+
   if (!code) {
     return res.status(400).json({ error: "No code provided" });
   }
-  
+
   const tempDir = path.join(__dirname, "../temp", Date.now().toString());
   const sketchPath = path.join(tempDir, "sketch");
   const sketchFile = path.join(sketchPath, "sketch.ino");
-  
+
   try {
     fs.mkdirSync(sketchPath, { recursive: true });
     fs.writeFileSync(sketchFile, code);
-    
+
     console.log(`📝 Compiling sketch for ${board}...`);
-    
+
     // Detect OS and use appropriate Arduino CLI path
-    const os = require('os');
-    const isWindows = os.platform() === 'win32';
-    const arduinoCliPath = isWindows 
-      ? 'C:\\arduino-cli\\arduino-cli.exe'
-      : '/opt/render/project/src/arduino-cli/arduino-cli';
-    
+    const os = require("os");
+    const isWindows = os.platform() === "win32";
+    const arduinoCliPath = isWindows
+      ? "C:\\arduino-cli\\arduino-cli.exe"
+      : "/opt/render/project/src/arduino-cli/arduino-cli";
+
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
-    
+
     // Check if Arduino CLI exists
     if (!fs.existsSync(arduinoCliPath)) {
       throw new Error(`Arduino CLI not found at ${arduinoCliPath}`);
     }
-    
+
     // Set config file path for Render
-    const configFile = isWindows 
-      ? '' 
-      : '--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml';
-    
+    const configFile = isWindows
+      ? ""
+      : "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml";
+
     const { stdout, stderr } = await execAsync(
       `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
       { timeout: 30000 }
     );
-    
+
     console.log("✅ Compilation successful");
     if (stdout) console.log("📋 Compiler output:", stdout);
     if (stderr) console.log("⚠️  Compiler warnings:", stderr);
-    
+
     const hexFile = path.join(tempDir, "sketch.ino.hex");
     const hexContent = fs.readFileSync(hexFile, "utf8");
     const hexBytes = parseIntelHex(hexContent);
-    
+
     fs.rmSync(tempDir, { recursive: true, force: true });
-    
+
     res.json({
       success: true,
       hex: hexContent,
@@ -197,11 +197,11 @@ app.post("/api/compile", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Compilation failed:", error.message);
-    
+
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
-    
+
     res.status(500).json({
       success: false,
       error: error.message,
@@ -213,12 +213,12 @@ app.post("/api/compile", async (req, res) => {
 function parseIntelHex(hexString) {
   const lines = hexString.trim().split("\n");
   const bytes = [];
-  
+
   for (const line of lines) {
     if (line.startsWith(":")) {
       const byteCount = parseInt(line.substr(1, 2), 16);
       const recordType = parseInt(line.substr(7, 2), 16);
-      
+
       if (recordType === 0x00) {
         for (let i = 0; i < byteCount; i++) {
           const byteValue = parseInt(line.substr(9 + i * 2, 2), 16);
@@ -227,7 +227,7 @@ function parseIntelHex(hexString) {
       }
     }
   }
-  
+
   return new Uint8Array(bytes);
 }
 
