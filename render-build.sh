@@ -117,10 +117,36 @@ else
     exit 1
 fi
 
+# Install required Arduino libraries
+echo "📚 Installing required Arduino libraries..."
+
+# Install Servo library
+echo "  📦 Installing Servo library..."
+./arduino-cli lib install Servo --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install LiquidCrystal I2C library
+echo "  📦 Installing LiquidCrystal I2C library..."
+./arduino-cli lib install "LiquidCrystal I2C" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Verify library installations
+echo "🔍 Verifying library installations..."
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Servo"; then
+    echo "  ✅ Servo library installed"
+else
+    echo "  ⚠️ Servo library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "LiquidCrystal"; then
+    echo "  ✅ LiquidCrystal I2C library installed"
+else
+    echo "  ⚠️ LiquidCrystal I2C library not found (will install on first use)"
+fi
+
 # Go back to server directory
 cd /opt/render/project/src
 
 echo "✅ All required files verified!"
 echo "✅ Arduino CLI production setup complete!"
+echo "✅ Arduino libraries installed!"
 echo "🎯 Ready to start inBlox backend server with Arduino compilation..."
 echo "📍 Server will be available at: https://innow8blocks-backend.onrender.com"

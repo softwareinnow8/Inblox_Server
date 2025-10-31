@@ -1,11 +1,13 @@
 # Free Solutions to Keep Render Backend Alive
 
 ## Problem
+
 Render free tier spins down after 15 minutes of inactivity, causing 50+ second delays on first request.
 
 ## ✅ Solution 1: UptimeRobot (Recommended - 100% Free)
 
 ### Steps:
+
 1. Go to https://uptimerobot.com/
 2. Sign up for free account (no credit card needed)
 3. Click "Add New Monitor"
@@ -17,6 +19,7 @@ Render free tier spins down after 15 minutes of inactivity, causing 50+ second d
 5. Click "Create Monitor"
 
 ### Result:
+
 - ✅ Backend stays awake 24/7
 - ✅ Completely free forever
 - ✅ No code changes needed
@@ -27,6 +30,7 @@ Render free tier spins down after 15 minutes of inactivity, causing 50+ second d
 ## ✅ Solution 2: Cron-Job.org (Free Alternative)
 
 ### Steps:
+
 1. Go to https://cron-job.org/en/
 2. Sign up for free account
 3. Create new cron job:
@@ -35,6 +39,7 @@ Render free tier spins down after 15 minutes of inactivity, causing 50+ second d
 4. Save
 
 ### Result:
+
 - ✅ Backend stays awake during active hours
 - ✅ Free tier allows 50+ jobs
 - ✅ No code changes needed
@@ -46,6 +51,7 @@ Render free tier spins down after 15 minutes of inactivity, causing 50+ second d
 Create a GitHub Action that pings your backend every 10 minutes.
 
 ### Steps:
+
 1. In your repo, create: `.github/workflows/keep-alive.yml`
 2. Add this content:
 
@@ -54,7 +60,7 @@ name: Keep Render Backend Alive
 on:
   schedule:
     # Run every 10 minutes
-    - cron: '*/10 * * * *'
+    - cron: "*/10 * * * *"
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -72,6 +78,7 @@ jobs:
 4. Go to Actions tab and enable the workflow
 
 ### Result:
+
 - ✅ Completely free
 - ✅ Runs automatically
 - ✅ No external services needed
@@ -82,6 +89,7 @@ jobs:
 ## ✅ Solution 4: Easy Cron (Free)
 
 ### Steps:
+
 1. Go to https://www.easycron.com/
 2. Sign up (free tier allows 1 cron job)
 3. Create cron job:
@@ -112,6 +120,7 @@ app.get("/ping", (req, res) => {
 **Use UptimeRobot** - it's the most reliable and includes monitoring/alerts.
 
 ### Quick Start:
+
 1. Sign up at https://uptimerobot.com
 2. Add monitor for `https://innow8blocks-backend.onrender.com/ping`
 3. Set interval to 5 minutes
@@ -120,6 +129,7 @@ app.get("/ping", (req, res) => {
 ---
 
 ## Why This Works
+
 - Render free tier only spins down after **15 minutes** of no requests
 - These services ping every **5-10 minutes**
 - Backend stays awake because it receives regular requests
@@ -130,6 +140,7 @@ app.get("/ping", (req, res) => {
 ## Alternative: Accept the Spin Down
 
 If you prefer not to use keep-alive services:
+
 - First upload after inactivity will take 50 seconds
 - Subsequent uploads will be instant
 - This is normal for Render free tier
