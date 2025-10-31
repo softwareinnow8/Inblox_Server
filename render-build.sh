@@ -126,16 +126,30 @@ echo "🔧 Adding additional board manager URLs..."
 echo "📥 Updating core index for ESP32 and MiniCore..."
 ./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
-# Install ESP32 core
+# Install ESP32 core (with retry on failure)
 echo "📦 Installing ESP32 core (this may take a few minutes)..."
-./arduino-cli core install esp32:esp32 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+MAX_RETRIES=2
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if ./arduino-cli core install esp32:esp32 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml; then
+        echo "✅ ESP32 core download completed"
+        break
+    else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo "⚠️ ESP32 core download failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+            sleep 5
+        fi
+    fi
+done
 
 # Verify ESP32 core installation
 if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "esp32:esp32"; then
     echo "✅ ESP32 core installed successfully"
 else
-    echo "❌ ESP32 core installation failed"
-    exit 1
+    echo "⚠️ ESP32 core installation failed after $MAX_RETRIES attempts"
+    echo "💡 ESP32 compilation will not work, but continuing with other cores..."
 fi
 
 # Install MiniCore for Arduino Uno X
