@@ -180,11 +180,19 @@ app.post("/api/compile", async (req, res) => {
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
+    
+    // Verify Arduino CLI exists
+    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
+      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
+      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}. Please check Render build logs.`);
+    }
 
     // Set config file path for Render (optional)
     const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
       ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
       : "";
+    
+    console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Try to install required libraries if they're not already installed
     const libraries = ["Servo", "LiquidCrystal I2C"];
@@ -293,11 +301,19 @@ app.post("/api/compile-esp32", async (req, res) => {
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
+    
+    // Verify Arduino CLI exists
+    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
+      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
+      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}. Please check Render build logs.`);
+    }
 
     // Set config file path for Render (optional)
     const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
       ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
       : "";
+    
+    console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Get user library path
     const userLibPath = isWindows
