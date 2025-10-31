@@ -44,6 +44,50 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
         fi
     fi
     
+    # Check if ESP32 core is installed
+    if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "esp32:esp32"; then
+        echo "✅ ESP32 core is available"
+    else
+        echo "⚠️ ESP32 core not found, attempting to install..."
+        
+        # Add ESP32 board manager URL
+        $ARDUINO_CLI_PATH config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Update index and install ESP32 core
+        $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        $ARDUINO_CLI_PATH core install esp32:esp32 --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Check again
+        if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "esp32:esp32"; then
+            echo "✅ ESP32 core installed successfully"
+        else
+            echo "⚠️ ESP32 core installation failed, but continuing..."
+            echo "💡 ESP32 compilation may not work"
+        fi
+    fi
+    
+    # Check if MiniCore is installed
+    if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "MiniCore:avr"; then
+        echo "✅ MiniCore is available"
+    else
+        echo "⚠️ MiniCore not found, attempting to install..."
+        
+        # Add MiniCore board manager URL
+        $ARDUINO_CLI_PATH config add board_manager.additional_urls https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Update index and install MiniCore
+        $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        $ARDUINO_CLI_PATH core install MiniCore:avr --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Check again
+        if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "MiniCore:avr"; then
+            echo "✅ MiniCore installed successfully"
+        else
+            echo "⚠️ MiniCore installation failed, but continuing..."
+            echo "💡 MiniCore compilation may not work"
+        fi
+    fi
+    
     # Check and install required libraries
     echo "📚 Checking Arduino libraries..."
     
