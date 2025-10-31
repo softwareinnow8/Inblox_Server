@@ -16,6 +16,7 @@ const PORT = 3001; // Force backend to use port 3001
 // Import routes
 const authRoutes = require("./routes/auth");
 const projectRoutes = require("./routes/projects");
+const arduinoUploadRouter = require("./routes/arduino-upload");
 
 // User model
 const userSchema = new mongoose.Schema({
@@ -157,23 +158,47 @@ app.post("/api/compile", async (req, res) => {
     // Detect OS and use appropriate Arduino CLI path
     const os = require("os");
     const isWindows = os.platform() === "win32";
-    const arduinoCliPath = isWindows
-      ? "C:\\arduino-cli\\arduino-cli.exe"
-      : "/opt/render/project/src/arduino-cli/arduino-cli";
+    
+    // Try to find arduino-cli in PATH first
+    let arduinoCliPath = "arduino-cli";
+    
+    // If not in PATH, try common locations
+    const possiblePaths = isWindows 
+      ? ["C:\\arduino-cli\\arduino-cli.exe"]
+      : [
+          "/opt/render/project/src/arduino-cli/arduino-cli",
+          "/usr/local/bin/arduino-cli",
+          "/usr/bin/arduino-cli"
+        ];
+    
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        arduinoCliPath = testPath;
+        break;
+      }
+    }
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
 
-    // Check if Arduino CLI exists
-    if (!fs.existsSync(arduinoCliPath)) {
-      throw new Error(`Arduino CLI not found at ${arduinoCliPath}`);
+    // Set config file path for Render (optional)
+    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
+      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
+      : "";
+
+    // Try to install required libraries if they're not already installed
+    const libraries = ["Servo", "LiquidCrystal I2C"];
+    for (const lib of libraries) {
+      try {
+        console.log(`📚 Ensuring ${lib} library is installed...`);
+        await execAsync(`"${arduinoCliPath}" lib install "${lib}" ${configFile}`, { timeout: 15000 });
+        console.log(`✅ ${lib} library ready`);
+      } catch (libError) {
+        // Library might already be installed, continue anyway
+        console.log(`ℹ️  ${lib} library install skipped (may already exist)`);
+      }
     }
-
-    // Set config file path for Render
-    const configFile = isWindows
-      ? ""
-      : "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml";
-
+    
     const { stdout, stderr } = await execAsync(
       `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
       { timeout: 30000 }
@@ -209,6 +234,142 @@ app.post("/api/compile", async (req, res) => {
   }
 });
 
+// ESP32 Compiler Endpoint
+app.post("/api/compile-esp32", async (req, res) => {
+  let { code, board, boardType } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: "No code provided" });
+  }
+
+  // Handle boardType parameter (convert to full FQBN)
+  if (!board && boardType) {
+    const boardMap = {
+      'esp32': 'esp32:esp32:esp32',
+      'esp32s3': 'esp32:esp32:esp32s3',
+      'esp32s2': 'esp32:esp32:esp32s2',
+      'esp32c3': 'esp32:esp32:esp32c3'
+    };
+    board = boardMap[boardType] || 'esp32:esp32:esp32s3';
+  }
+  
+  // Default board if not specified
+  if (!board) {
+    board = "esp32:esp32:esp32s3";
+  }
+
+  const tempDir = path.join(__dirname, "../temp", `esp32_${Date.now()}`);
+  const sketchPath = path.join(tempDir, "sketch");
+  const sketchFile = path.join(sketchPath, "sketch.ino");
+
+  try {
+    fs.mkdirSync(sketchPath, { recursive: true });
+    fs.writeFileSync(sketchFile, code);
+
+    console.log(`📝 Compiling ESP32 sketch for ${board}...`);
+
+    // Detect OS and use appropriate Arduino CLI path
+    const os = require("os");
+    const isWindows = os.platform() === "win32";
+    
+    // Try to find arduino-cli in PATH first
+    let arduinoCliPath = "arduino-cli";
+    
+    // If not in PATH, try common locations
+    const possiblePaths = isWindows 
+      ? ["C:\\arduino-cli\\arduino-cli.exe"]
+      : [
+          "/opt/render/project/src/arduino-cli/arduino-cli",
+          "/usr/local/bin/arduino-cli",
+          "/usr/bin/arduino-cli"
+        ];
+    
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        arduinoCliPath = testPath;
+        break;
+      }
+    }
+
+    console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
+    console.log(`🖥️  Platform: ${os.platform()}`);
+
+    // Set config file path for Render (optional)
+    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
+      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
+      : "";
+
+    // Get user library path
+    const userLibPath = isWindows
+      ? path.join(process.env.USERPROFILE || process.env.HOME, 'Documents', 'Arduino', 'libraries')
+      : path.join(process.env.HOME, 'Arduino', 'libraries');
+
+    // Build compile command with library path
+    const libraryFlag = fs.existsSync(userLibPath) ? `--libraries "${userLibPath}"` : "";
+
+    // Compile for ESP32
+    const compileCmd = `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} ${libraryFlag} "${sketchPath}" --output-dir "${tempDir}"`;
+    console.log(`📋 Compile command: ${compileCmd}`);
+    console.log(`⏳ Starting compilation... This may take 3-5 minutes for large ESP32 sketches.`);
+    
+    const { stdout, stderr } = await execAsync(compileCmd, { 
+      timeout: 300000 // 5 minutes - ESP32 S3 compilation can take very long for large sketches
+    });
+
+    console.log("✅ ESP32 Compilation successful");
+    if (stdout) console.log("📋 Compiler output:", stdout);
+    if (stderr) console.log("⚠️  Compiler warnings:", stderr);
+
+    // ESP32 produces .bin files instead of .hex
+    const binFile = path.join(tempDir, "sketch.ino.bin");
+    const bootloaderFile = path.join(tempDir, "sketch.ino.bootloader.bin");
+    const partitionsFile = path.join(tempDir, "sketch.ino.partitions.bin");
+
+    // Read the main binary file
+    const binaryData = fs.readFileSync(binFile).toString("base64");
+
+    const firmware = {
+      bootloader: fs.existsSync(bootloaderFile)
+        ? fs.readFileSync(bootloaderFile).toString("base64")
+        : null,
+      partitions: fs.existsSync(partitionsFile)
+        ? fs.readFileSync(partitionsFile).toString("base64")
+        : null,
+      app: binaryData,
+    };
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    res.json({
+      success: true,
+      binary: binaryData, // Main binary for frontend
+      firmware: firmware, // Detailed firmware parts
+      board: board,
+    });
+  } catch (error) {
+    console.error("❌ ESP32 Compilation failed:", error.message);
+    console.error("📋 Full error:", JSON.stringify(error, null, 2));
+    if (error.stdout) console.error("📋 Stdout:", error.stdout);
+    if (error.stderr) console.error("📋 Stderr:", error.stderr);
+    
+    // Keep temp directory for debugging
+    console.error("🔍 Temp directory preserved for debugging:", tempDir);
+
+    // Uncomment to clean up:
+    // if (fs.existsSync(tempDir)) {
+    //   fs.rmSync(tempDir, { recursive: true, force: true });
+    // }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stdout: error.stdout,
+      stderr: error.stderr,
+      tempDir: tempDir,
+    });
+  }
+});
+
 // Parse Intel HEX format
 function parseIntelHex(hexString) {
   const lines = hexString.trim().split("\n");
@@ -234,6 +395,7 @@ function parseIntelHex(hexString) {
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/arduino", arduinoUploadRouter);
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -262,6 +424,8 @@ app.get("/", (req, res) => {
       "/api/auth/signup",
       "/api/auth/profile",
       "/api/projects/my-projects",
+      "/api/compile",
+      "/api/compile-esp32",
       "/api/health",
       "/ping",
     ],
@@ -275,7 +439,7 @@ app.get("/", (req, res) => {
 app.use("*", (req, res) => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
   console.log(
-    `Available routes: /api/auth/*, /api/projects/*, /api/health, /ping`
+    `Available routes: /api/auth/*, /api/projects/*, /api/compile, /api/compile-esp32, /api/health, /ping`
   );
   res.status(404).json({
     error: "Route not found",
@@ -289,6 +453,8 @@ app.use("*", (req, res) => {
       "POST /api/auth/signup",
       "GET /api/auth/profile",
       "GET /api/projects/my-projects",
+      "POST /api/compile",
+      "POST /api/compile-esp32",
     ],
   });
 });

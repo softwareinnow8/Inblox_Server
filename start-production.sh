@@ -43,6 +43,25 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
             echo "💡 Compilation may not work - check build logs"
         fi
     fi
+    
+    # Check and install required libraries
+    echo "📚 Checking Arduino libraries..."
+    
+    # Check Servo library
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Servo"; then
+        echo "  ✅ Servo library is available"
+    else
+        echo "  📦 Installing Servo library..."
+        $ARDUINO_CLI_PATH lib install Servo --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check LiquidCrystal I2C library
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "LiquidCrystal"; then
+        echo "  ✅ LiquidCrystal I2C library is available"
+    else
+        echo "  📦 Installing LiquidCrystal I2C library..."
+        $ARDUINO_CLI_PATH lib install "LiquidCrystal I2C" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
 else
     echo "⚠️ Arduino CLI not found at expected location"
     echo "💡 Compilation will fall back to alternative methods"
