@@ -126,14 +126,15 @@ echo "🔧 Adding additional board manager URLs..."
 echo "📥 Updating core index for ESP32 and MiniCore..."
 ./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
-# Install ESP32 core (with retry on failure)
-echo "📦 Installing ESP32 core (this may take a few minutes)..."
+# Install ESP32 core (using older version to fit in 512MB free tier limit)
+echo "📦 Installing ESP32 core v2.0.14 (optimized for free tier)..."
+echo "💡 Using older version (~350MB instead of ~740MB) to fit in 512MB storage limit"
 MAX_RETRIES=2
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if ./arduino-cli core install esp32:esp32 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml; then
-        echo "✅ ESP32 core download completed"
+    if ./arduino-cli core install esp32:esp32@2.0.14 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml; then
+        echo "✅ ESP32 core v2.0.14 download completed"
         break
     else
         RETRY_COUNT=$((RETRY_COUNT + 1))

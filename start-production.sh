@@ -16,26 +16,13 @@ export PATH="/opt/render/project/src/arduino-cli:$PATH"
 
 # Verify Arduino CLI is available
 if [ -f "$ARDUINO_CLI_PATH" ]; then
-    echo "✅ Arduino CLI found at: $ARDUINO_CLI_PATH"
     
     # Test Arduino CLI
     if $ARDUINO_CLI_PATH version --config-file "$ARDUINO_CONFIG_FILE"; then
         echo "✅ Arduino CLI is working correctly"
     else
         echo "⚠️ Arduino CLI test failed, but continuing..."
-    fi
-    
-    # Check if AVR core is installed
-    if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
-        echo "✅ Arduino AVR core is available"
-    else
-        echo "⚠️ Arduino AVR core not found, attempting to install..."
-        
-        # Try to install AVR core
-        $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
-        $ARDUINO_CLI_PATH core install arduino:avr --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
-        
-        # Check again
+        echo "✅ Arduino CLI is working correctly"
         if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
             echo "✅ Arduino AVR core installed successfully"
         else
@@ -53,9 +40,9 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
         # Add ESP32 board manager URL
         $ARDUINO_CLI_PATH config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
         
-        # Update index and install ESP32 core
+        # Update index and install ESP32 core (v2.0.14 for free tier 512MB limit)
         $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
-        $ARDUINO_CLI_PATH core install esp32:esp32 --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        $ARDUINO_CLI_PATH core install esp32:esp32@2.0.14 --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
         
         # Check again
         if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "esp32:esp32"; then
