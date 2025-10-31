@@ -3,8 +3,12 @@
 
 echo "🚀 Starting inBlox Backend deployment..."
 
-# Install dependencies
-echo "📦 Installing dependencies..."
+# Install Python dependencies for ESP32 toolchain
+echo "🐍 Installing Python dependencies for ESP32..."
+pip install pyserial
+
+# Install Node.js dependencies
+echo "📦 Installing Node.js dependencies..."
 npm install
 
 # Check and list all required files

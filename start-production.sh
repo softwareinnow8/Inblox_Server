@@ -3,6 +3,10 @@
 
 echo "🚀 Starting inBlox Backend in production mode..."
 
+# Ensure Python pyserial is installed (needed for ESP32 esptool)
+echo "🐍 Checking Python dependencies..."
+pip install --quiet pyserial 2>/dev/null || echo "⚠️ Could not install pyserial (may already be installed)"
+
 # Set environment variables
 export NODE_ENV=production
 export PORT=${PORT:-10000}
@@ -16,18 +20,32 @@ export PATH="/opt/render/project/src/arduino-cli:$PATH"
 
 # Verify Arduino CLI is available
 if [ -f "$ARDUINO_CLI_PATH" ]; then
+    echo "✅ Arduino CLI found at: $ARDUINO_CLI_PATH"
     
     # Test Arduino CLI
-    if $ARDUINO_CLI_PATH version --config-file "$ARDUINO_CONFIG_FILE"; then
-        echo "✅ Arduino CLI is working correctly"
+    $ARDUINO_CLI_PATH version --config-file "$ARDUINO_CONFIG_FILE"
+    echo "✅ Arduino CLI is working correctly"
+    
+    # List installed cores for debugging
+    echo "📋 Checking installed cores..."
+    $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" || echo "⚠️ No cores found"
+    
+    # Check if Arduino AVR core is installed
+    if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
+        echo "✅ Arduino AVR core is available"
     else
-        echo "⚠️ Arduino CLI test failed, but continuing..."
-        echo "✅ Arduino CLI is working correctly"
+        echo "⚠️ Arduino AVR core not found, attempting to install..."
+        
+        # Update index and install Arduino AVR core
+        $ARDUINO_CLI_PATH core update-index --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        $ARDUINO_CLI_PATH core install arduino:avr --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+        
+        # Check again
         if $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "arduino:avr"; then
             echo "✅ Arduino AVR core installed successfully"
         else
             echo "⚠️ Arduino AVR core installation failed, but continuing..."
-            echo "💡 Compilation may not work - check build logs"
+            echo "💡 AVR compilation may not work"
         fi
     fi
     
