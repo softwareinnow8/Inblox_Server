@@ -91,12 +91,20 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
     # Check and install required libraries
     echo "📚 Checking Arduino libraries..."
     
-    # Check Servo library
+    # Check Servo library (for AVR boards)
     if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Servo"; then
         echo "  ✅ Servo library is available"
     else
         echo "  📦 Installing Servo library..."
         $ARDUINO_CLI_PATH lib install Servo --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check ESP32Servo library (for ESP32 boards)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "ESP32Servo"; then
+        echo "  ✅ ESP32Servo library is available"
+    else
+        echo "  📦 Installing ESP32Servo library..."
+        $ARDUINO_CLI_PATH lib install ESP32Servo --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
     fi
     
     # Check LiquidCrystal I2C library
@@ -105,6 +113,46 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
     else
         echo "  📦 Installing LiquidCrystal I2C library..."
         $ARDUINO_CLI_PATH lib install "LiquidCrystal I2C" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check Adafruit NeoPixel library (for RGB LED strips)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Adafruit NeoPixel"; then
+        echo "  ✅ Adafruit NeoPixel library is available"
+    else
+        echo "  📦 Installing Adafruit NeoPixel library..."
+        $ARDUINO_CLI_PATH lib install "Adafruit NeoPixel" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check DHT sensor library (for temperature/humidity sensors)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "DHT sensor library"; then
+        echo "  ✅ DHT sensor library is available"
+    else
+        echo "  📦 Installing DHT sensor library..."
+        $ARDUINO_CLI_PATH lib install "DHT sensor library" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check Adafruit GFX library (for OLED displays)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Adafruit GFX"; then
+        echo "  ✅ Adafruit GFX library is available"
+    else
+        echo "  📦 Installing Adafruit GFX library..."
+        $ARDUINO_CLI_PATH lib install "Adafruit GFX Library" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check Adafruit SSD1306 library (for OLED displays)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Adafruit SSD1306"; then
+        echo "  ✅ Adafruit SSD1306 library is available"
+    else
+        echo "  📦 Installing Adafruit SSD1306 library..."
+        $ARDUINO_CLI_PATH lib install "Adafruit SSD1306" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # Check Adafruit LED Backpack library (for 7-segment displays)
+    if $ARDUINO_CLI_PATH lib list --config-file "$ARDUINO_CONFIG_FILE" | grep -q "Adafruit LED Backpack"; then
+        echo "  ✅ Adafruit LED Backpack library is available"
+    else
+        echo "  📦 Installing Adafruit LED Backpack library..."
+        $ARDUINO_CLI_PATH lib install "Adafruit LED Backpack Library" --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || true
     fi
 else
     echo "⚠️ Arduino CLI not found at expected location"
