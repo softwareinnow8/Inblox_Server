@@ -153,13 +153,37 @@ fi
 # Install required Arduino libraries
 echo "📚 Installing required Arduino libraries..."
 
-# Install Servo library
+# Install Servo library (for AVR boards)
 echo "  📦 Installing Servo library..."
 ./arduino-cli lib install Servo --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install ESP32Servo library (for ESP32 boards)
+echo "  📦 Installing ESP32Servo library..."
+./arduino-cli lib install ESP32Servo --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
 # Install LiquidCrystal I2C library
 echo "  📦 Installing LiquidCrystal I2C library..."
 ./arduino-cli lib install "LiquidCrystal I2C" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install Adafruit NeoPixel library (for RGB LED strips)
+echo "  📦 Installing Adafruit NeoPixel library..."
+./arduino-cli lib install "Adafruit NeoPixel" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install DHT sensor library (for temperature/humidity sensors)
+echo "  📦 Installing DHT sensor library..."
+./arduino-cli lib install "DHT sensor library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install Adafruit GFX library (for OLED displays)
+echo "  📦 Installing Adafruit GFX library..."
+./arduino-cli lib install "Adafruit GFX Library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install Adafruit SSD1306 library (for OLED displays)
+echo "  📦 Installing Adafruit SSD1306 library..."
+./arduino-cli lib install "Adafruit SSD1306" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install Adafruit LED Backpack library (for 7-segment displays)
+echo "  📦 Installing Adafruit LED Backpack library..."
+./arduino-cli lib install "Adafruit LED Backpack Library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
 # Verify library installations
 echo "🔍 Verifying library installations..."
@@ -169,10 +193,46 @@ else
     echo "  ⚠️ Servo library not found (will install on first use)"
 fi
 
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "ESP32Servo"; then
+    echo "  ✅ ESP32Servo library installed"
+else
+    echo "  ⚠️ ESP32Servo library not found (will install on first use)"
+fi
+
 if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "LiquidCrystal"; then
     echo "  ✅ LiquidCrystal I2C library installed"
 else
     echo "  ⚠️ LiquidCrystal I2C library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit NeoPixel"; then
+    echo "  ✅ Adafruit NeoPixel library installed"
+else
+    echo "  ⚠️ Adafruit NeoPixel library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "DHT sensor library"; then
+    echo "  ✅ DHT sensor library installed"
+else
+    echo "  ⚠️ DHT sensor library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit GFX"; then
+    echo "  ✅ Adafruit GFX library installed"
+else
+    echo "  ⚠️ Adafruit GFX library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit SSD1306"; then
+    echo "  ✅ Adafruit SSD1306 library installed"
+else
+    echo "  ⚠️ Adafruit SSD1306 library not found (will install on first use)"
+fi
+
+if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit LED Backpack"; then
+    echo "  ✅ Adafruit LED Backpack library installed"
+else
+    echo "  ⚠️ Adafruit LED Backpack library not found (will install on first use)"
 fi
 
 # Go back to server directory
