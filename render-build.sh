@@ -102,18 +102,51 @@ echo "⚙️ Initializing Arduino CLI configuration..."
 ./arduino-cli config init --dest-dir /opt/render/project/src/.arduino15
 
 # Update core index
-echo "📥 Updating Arduino core index..."
+echo "Updating Arduino core index..."
 ./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
 # Install Arduino AVR core
-echo "📦 Installing Arduino AVR core..."
+echo "Installing Arduino AVR core..."
 ./arduino-cli core install arduino:avr --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
-# Verify core installation
+# Verify AVR core installation
 if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "arduino:avr"; then
-    echo "✅ Arduino AVR core installed successfully"
+    echo "Arduino AVR core installed successfully"
 else
-    echo "❌ Arduino AVR core installation failed"
+    echo "Arduino AVR core installation failed"
+    exit 1
+fi
+
+# Add additional board manager URLs (ESP32 and MiniCore)
+echo "🔧 Adding additional board manager URLs..."
+./arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+./arduino-cli config add board_manager.additional_urls https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Update core index for additional boards
+echo "📥 Updating core index for ESP32 and MiniCore..."
+./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Install ESP32 core
+echo "📦 Installing ESP32 core (this may take a few minutes)..."
+./arduino-cli core install esp32:esp32 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Verify ESP32 core installation
+if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "esp32:esp32"; then
+    echo "✅ ESP32 core installed successfully"
+else
+    echo "❌ ESP32 core installation failed"
+    exit 1
+fi
+
+# Install MiniCore for Arduino Uno X
+echo "📦 Installing MiniCore for Arduino Uno X..."
+./arduino-cli core install MiniCore:avr --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
+
+# Verify MiniCore installation
+if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "MiniCore:avr"; then
+    echo "✅ MiniCore installed successfully"
+else
+    echo "❌ MiniCore installation failed"
     exit 1
 fi
 
