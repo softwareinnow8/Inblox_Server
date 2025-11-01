@@ -44,7 +44,7 @@ class ArduinoDependencyManager {
     }
 
     /**
-     * Check if a core is installed
+     * Check if a core is installed (with specific version)
      */
     async isCoreInstalled(core) {
         try {
@@ -52,9 +52,22 @@ class ArduinoDependencyManager {
                 `"${this.cliPath}" core list --config-file "${this.configFile}"`
             );
             
-            // Extract core name without version
-            const coreName = core.split('@')[0];
-            return stdout.includes(coreName);
+            // Check for specific version if specified
+            if (core.includes('@')) {
+                const [coreName, version] = core.split('@');
+                // Check if both core name and version match
+                const lines = stdout.split('\n');
+                for (const line of lines) {
+                    if (line.includes(coreName) && line.includes(version)) {
+                        return true;
+                    }
+                }
+                return false;
+            } else {
+                // No version specified, just check core name
+                const coreName = core.split('@')[0];
+                return stdout.includes(coreName);
+            }
         } catch (error) {
             console.log(`⚠️ Error checking core: ${error.message}`);
             return false;
@@ -87,7 +100,45 @@ class ArduinoDependencyManager {
     }
 
     /**
-     * Ensure a core is installed (check cache first, then system, then install)
+     * Upgrade a core to a specific version
+     */
+    async upgradeCore(core) {
+        console.log(`🔄 Upgrading to ${core}...`);
+        console.log(`⏳ This may take 3-5 minutes for ESP32...`);
+        
+        try {
+            const startTime = Date.now();
+            
+            // Use upgrade command which handles version changes
+            await execPromise(
+                `"${this.cliPath}" core upgrade ${core} --config-file "${this.configFile}"`,
+                { timeout: 600000 } // 10 minute timeout
+            );
+            
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`✅ Core upgraded to ${core} successfully in ${duration}s`);
+            
+            return true;
+        } catch (error) {
+            // If upgrade fails, try uninstall + install
+            console.log(`⚠️ Upgrade failed, trying uninstall + install...`);
+            try {
+                const coreName = core.split('@')[0];
+                await execPromise(
+                    `"${this.cliPath}" core uninstall ${coreName} --config-file "${this.configFile}"`,
+                    { timeout: 60000 }
+                );
+                await this.installCore(core);
+                return true;
+            } catch (reinstallError) {
+                console.error(`❌ Failed to upgrade core ${core}: ${reinstallError.message}`);
+                throw new Error(`Failed to upgrade core ${core}: ${reinstallError.message}`);
+            }
+        }
+    }
+
+    /**
+     * Ensure a core is installed (check cache first, then system, then install/upgrade)
      */
     async ensureCore(boardType) {
         const core = this.getBoardCore(boardType);
@@ -98,7 +149,7 @@ class ArduinoDependencyManager {
             return;
         }
 
-        // Check if installed on system
+        // Check if exact version is installed on system
         const isInstalled = await this.isCoreInstalled(core);
         
         if (isInstalled) {
@@ -107,7 +158,19 @@ class ArduinoDependencyManager {
             return;
         }
 
-        // Install core
+        // Check if a different version is installed
+        const coreName = core.split('@')[0];
+        const anyVersionInstalled = await this.isCoreInstalled(coreName);
+        
+        if (anyVersionInstalled && core.includes('@')) {
+            // Different version exists, need to upgrade
+            console.log(`🔄 Different version of ${coreName} found, upgrading to ${core}...`);
+            await this.upgradeCore(core);
+            this.installedCores.add(core);
+            return;
+        }
+
+        // Install core (fresh install)
         console.log(`📦 Core ${core} not found, installing now...`);
         await this.installCore(core);
         this.installedCores.add(core);
