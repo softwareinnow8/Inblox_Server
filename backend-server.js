@@ -145,7 +145,20 @@ app.options("/api/compile", cors());
 
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", async (req, res) => {
-  const { code, board = "arduino:avr:uno", boardType = "arduino-uno" } = req.body;
+  let { code, board, boardType = "arduino-uno" } = req.body;
+  
+  // Map boardType to FQBN if board not provided
+  if (!board) {
+    const boardFQBNMap = {
+      'arduino-uno': 'arduino:avr:uno',
+      'arduino-nano': 'arduino:avr:nano',
+      'arduino-mega': 'arduino:avr:mega',
+      'uno-x': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+      'unox': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+      'minicore-328p': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external'
+    };
+    board = boardFQBNMap[boardType] || 'arduino:avr:uno';
+  }
 
   if (!code) {
     return res.status(400).json({ error: "No code provided" });
