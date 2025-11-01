@@ -18,6 +18,9 @@ const authRoutes = require("./routes/auth");
 const projectRoutes = require("./routes/projects");
 const arduinoUploadRouter = require("./routes/arduino-upload");
 
+// Import Arduino Dependency Manager for on-demand installation
+const dependencyManager = require("./arduino-dependency-manager");
+
 // User model
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
@@ -139,7 +142,7 @@ const connectDB = async () => {
 
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", async (req, res) => {
-  const { code, board = "arduino:avr:uno" } = req.body;
+  const { code, board = "arduino:avr:uno", boardType = "arduino-uno" } = req.body;
 
   if (!code) {
     return res.status(400).json({ error: "No code provided" });
@@ -154,6 +157,11 @@ app.post("/api/compile", async (req, res) => {
     fs.writeFileSync(sketchFile, code);
 
     console.log(`📝 Compiling sketch for ${board}...`);
+
+    // ON-DEMAND: Ensure required core and libraries are installed
+    console.log(`🔍 Ensuring dependencies for ${boardType}...`);
+    await dependencyManager.ensureDependencies(code, boardType);
+    console.log(`✅ Dependencies ready`);
 
     // Detect OS and use appropriate Arduino CLI path
     const os = require("os");
@@ -194,18 +202,8 @@ app.post("/api/compile", async (req, res) => {
     
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
-    // Try to install required libraries if they're not already installed
-    const libraries = ["Servo", "LiquidCrystal I2C"];
-    for (const lib of libraries) {
-      try {
-        console.log(`📚 Ensuring ${lib} library is installed...`);
-        await execAsync(`"${arduinoCliPath}" lib install "${lib}" ${configFile}`, { timeout: 15000 });
-        console.log(`✅ ${lib} library ready`);
-      } catch (libError) {
-        // Library might already be installed, continue anyway
-        console.log(`ℹ️  ${lib} library install skipped (may already exist)`);
-      }
-    }
+    // Libraries are now installed on-demand by dependency manager
+    // No need to install them here
     
     const { stdout, stderr } = await execAsync(
       `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
@@ -275,6 +273,11 @@ app.post("/api/compile-esp32", async (req, res) => {
     fs.writeFileSync(sketchFile, code);
 
     console.log(`📝 Compiling ESP32 sketch for ${board}...`);
+
+    // ON-DEMAND: Ensure required core and libraries are installed for ESP32
+    console.log(`🔍 Ensuring dependencies for esp32-s3...`);
+    await dependencyManager.ensureDependencies(code, 'esp32-s3');
+    console.log(`✅ Dependencies ready`);
 
     // Detect OS and use appropriate Arduino CLI path
     const os = require("os");

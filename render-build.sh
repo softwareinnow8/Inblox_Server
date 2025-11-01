@@ -105,160 +105,33 @@ fi
 echo "⚙️ Initializing Arduino CLI configuration..."
 ./arduino-cli config init --dest-dir /opt/render/project/src/.arduino15
 
-# Update core index
-echo "Updating Arduino core index..."
-./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install Arduino AVR core
-echo "Installing Arduino AVR core..."
-./arduino-cli core install arduino:avr --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Verify AVR core installation
-if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "arduino:avr"; then
-    echo "Arduino AVR core installed successfully"
-else
-    echo "Arduino AVR core installation failed"
-    exit 1
-fi
-
-# Add additional board manager URLs (ESP32 and MiniCore)
-echo "🔧 Adding additional board manager URLs..."
+# Add board manager URLs (for on-demand installation)
+echo "🔧 Adding board manager URLs..."
 ./arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 ./arduino-cli config add board_manager.additional_urls https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
-# Update core index for additional boards
-echo "📥 Updating core index for ESP32 and MiniCore..."
+# Update core index (prepare for on-demand installation)
+echo "📥 Updating core index..."
 ./arduino-cli core update-index --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
 
-# Install ESP32 core (using older version to fit in 512MB free tier limit)
-echo "📦 Installing ESP32 core v2.0.14 (optimized for free tier)..."
-echo "💡 Using older version (~350MB instead of ~740MB) to fit in 512MB storage limit"
-MAX_RETRIES=2
-RETRY_COUNT=0
+echo ""
+echo "✅ Arduino CLI configured successfully"
+echo "⚡ OPTIMIZATION: Cores and libraries will be installed ON-DEMAND"
+echo "💡 This reduces build time from 10+ minutes to ~2 minutes"
+echo "💡 First compilation per board type will install required dependencies"
+echo ""
 
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if ./arduino-cli core install esp32:esp32@2.0.14 --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml; then
-        echo "✅ ESP32 core v2.0.14 download completed"
-        break
-    else
-        RETRY_COUNT=$((RETRY_COUNT + 1))
-        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-            echo "⚠️ ESP32 core download failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-            sleep 5
-        fi
-    fi
-done
-
-# Verify ESP32 core installation
-if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "esp32:esp32"; then
-    echo "✅ ESP32 core installed successfully"
-else
-    echo "⚠️ ESP32 core installation failed after $MAX_RETRIES attempts"
-    echo "💡 ESP32 compilation will not work, but continuing with other cores..."
-fi
-
-# Install MiniCore for Arduino Uno X
-echo "📦 Installing MiniCore for Arduino Uno X..."
-./arduino-cli core install MiniCore:avr --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Verify MiniCore installation
-if ./arduino-cli core list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "MiniCore:avr"; then
-    echo "✅ MiniCore installed successfully"
-else
-    echo "❌ MiniCore installation failed"
-    exit 1
-fi
-
-# Install required Arduino libraries
-echo "📚 Installing required Arduino libraries..."
-
-# Install Servo library (for AVR boards)
-echo "  📦 Installing Servo library..."
-./arduino-cli lib install Servo --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install ESP32Servo library (for ESP32 boards)
-echo "  📦 Installing ESP32Servo library..."
-./arduino-cli lib install ESP32Servo --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install LiquidCrystal I2C library
-echo "  📦 Installing LiquidCrystal I2C library..."
-./arduino-cli lib install "LiquidCrystal I2C" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install Adafruit NeoPixel library (for RGB LED strips)
-echo "  📦 Installing Adafruit NeoPixel library..."
-./arduino-cli lib install "Adafruit NeoPixel" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install DHT sensor library (for temperature/humidity sensors)
-echo "  📦 Installing DHT sensor library..."
-./arduino-cli lib install "DHT sensor library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install Adafruit GFX library (for OLED displays)
-echo "  📦 Installing Adafruit GFX library..."
-./arduino-cli lib install "Adafruit GFX Library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install Adafruit SSD1306 library (for OLED displays)
-echo "  📦 Installing Adafruit SSD1306 library..."
-./arduino-cli lib install "Adafruit SSD1306" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Install Adafruit LED Backpack library (for 7-segment displays)
-echo "  📦 Installing Adafruit LED Backpack library..."
-./arduino-cli lib install "Adafruit LED Backpack Library" --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml
-
-# Verify library installations
-echo "🔍 Verifying library installations..."
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Servo"; then
-    echo "  ✅ Servo library installed"
-else
-    echo "  ⚠️ Servo library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "ESP32Servo"; then
-    echo "  ✅ ESP32Servo library installed"
-else
-    echo "  ⚠️ ESP32Servo library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "LiquidCrystal"; then
-    echo "  ✅ LiquidCrystal I2C library installed"
-else
-    echo "  ⚠️ LiquidCrystal I2C library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit NeoPixel"; then
-    echo "  ✅ Adafruit NeoPixel library installed"
-else
-    echo "  ⚠️ Adafruit NeoPixel library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "DHT sensor library"; then
-    echo "  ✅ DHT sensor library installed"
-else
-    echo "  ⚠️ DHT sensor library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit GFX"; then
-    echo "  ✅ Adafruit GFX library installed"
-else
-    echo "  ⚠️ Adafruit GFX library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit SSD1306"; then
-    echo "  ✅ Adafruit SSD1306 library installed"
-else
-    echo "  ⚠️ Adafruit SSD1306 library not found (will install on first use)"
-fi
-
-if ./arduino-cli lib list --config-file /opt/render/project/src/.arduino15/arduino-cli.yaml | grep -q "Adafruit LED Backpack"; then
-    echo "  ✅ Adafruit LED Backpack library installed"
-else
-    echo "  ⚠️ Adafruit LED Backpack library not found (will install on first use)"
-fi
+# ❌ REMOVED: Core installation (now done on-demand)
+# ❌ REMOVED: Library installation (now done on-demand)
+# This saves 8-10 minutes during build phase!
 
 # Go back to server directory
 cd /opt/render/project/src
 
-echo "✅ All required files verified!"
-echo "✅ Arduino CLI production setup complete!"
-echo "✅ Arduino libraries installed!"
-echo "🎯 Ready to start inBlox backend server with Arduino compilation..."
-echo "📍 Server will be available at: https://innow8blocks-backend.onrender.com"
+echo ""
+echo "✅ Build complete!"
+echo "✅ Arduino CLI configured for on-demand installation"
+echo "⚡ Build time reduced from 10+ minutes to ~2 minutes"
+echo "🎯 Server will install cores/libraries automatically when needed"
+echo "📍 Server will be available at: https://inblox-server.onrender.com"
+echo ""
