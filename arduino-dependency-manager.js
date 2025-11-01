@@ -75,6 +75,18 @@ class ArduinoDependencyManager {
     }
 
     /**
+     * Get additional URLs for third-party cores
+     */
+    getAdditionalUrls(core) {
+        const coreName = core.split(':')[0];
+        const urlMap = {
+            'MiniCore': 'https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json',
+            'esp32': 'https://espressif.github.io/arduino-esp32/package_esp32_index.json'
+        };
+        return urlMap[coreName] || '';
+    }
+
+    /**
      * Install a core
      */
     async installCore(core) {
@@ -84,10 +96,14 @@ class ArduinoDependencyManager {
         try {
             const startTime = Date.now();
             
-            await execPromise(
-                `"${this.cliPath}" core install ${core} --config-file "${this.configFile}"`,
-                { timeout: 600000 } // 10 minute timeout
-            );
+            // Get additional URLs if needed for third-party cores
+            const additionalUrl = this.getAdditionalUrls(core);
+            const additionalUrlParam = additionalUrl ? `--additional-urls "${additionalUrl}"` : '';
+            
+            const command = `"${this.cliPath}" core install ${core} --config-file "${this.configFile}" ${additionalUrlParam}`.trim();
+            console.log(`🔧 Running: ${command}`);
+            
+            await execPromise(command, { timeout: 600000 }); // 10 minute timeout
             
             const duration = ((Date.now() - startTime) / 1000).toFixed(1);
             console.log(`✅ Core ${core} installed successfully in ${duration}s`);
@@ -109,11 +125,14 @@ class ArduinoDependencyManager {
         try {
             const startTime = Date.now();
             
-            // Use upgrade command which handles version changes
-            await execPromise(
-                `"${this.cliPath}" core upgrade ${core} --config-file "${this.configFile}"`,
-                { timeout: 600000 } // 10 minute timeout
-            );
+            // Get additional URLs if needed for third-party cores
+            const additionalUrl = this.getAdditionalUrls(core);
+            const additionalUrlParam = additionalUrl ? `--additional-urls "${additionalUrl}"` : '';
+            
+            const command = `"${this.cliPath}" core upgrade ${core} --config-file "${this.configFile}" ${additionalUrlParam}`.trim();
+            console.log(`🔧 Running: ${command}`);
+            
+            await execPromise(command, { timeout: 600000 }); // 10 minute timeout
             
             const duration = ((Date.now() - startTime) / 1000).toFixed(1);
             console.log(`✅ Core upgraded to ${core} successfully in ${duration}s`);
