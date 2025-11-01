@@ -140,6 +140,9 @@ const connectDB = async () => {
   }
 };
 
+// Arduino Compiler Endpoint - Handle OPTIONS preflight
+app.options("/api/compile", cors());
+
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", async (req, res) => {
   const { code, board = "arduino:avr:uno", boardType = "arduino-uno" } = req.body;
@@ -239,6 +242,9 @@ app.post("/api/compile", async (req, res) => {
     });
   }
 });
+
+// ESP32 Compiler Endpoint - Handle OPTIONS preflight
+app.options("/api/compile-esp32", cors());
 
 // ESP32 Compiler Endpoint
 app.post("/api/compile-esp32", async (req, res) => {
