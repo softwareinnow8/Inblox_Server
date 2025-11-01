@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Production startup script for Render deployment
-# OPTIMIZED: Minimal startup - cores and libraries installed on-demand
+# Production startup script for Render deployment with PERSISTENT DISK
+# OPTIMIZED: Install cores once, persist forever on /opt/render/project/src/.arduino15
 
 echo "🚀 Starting inBlox Backend in production mode..."
-echo "⚡ Using ON-DEMAND dependency installation for faster startup"
+echo "💾 Using PERSISTENT DISK for Arduino cores and libraries"
 
 # Ensure Python pyserial is installed (needed for ESP32 esptool)
 echo "🐍 Installing Python dependencies..."
@@ -13,29 +13,50 @@ pip install --quiet pyserial 2>/dev/null || echo "⚠️ Could not install pyser
 export NODE_ENV=production
 export PORT=${PORT:-10000}
 
-# Set Arduino CLI paths for production
+# Set Arduino CLI paths for production (PERSISTENT DISK)
 export ARDUINO_CLI_PATH="/opt/render/project/src/arduino-cli/arduino-cli"
 export ARDUINO_CONFIG_FILE="/opt/render/project/src/.arduino15/arduino-cli.yaml"
+export ARDUINO_DATA_DIR="/opt/render/project/src/.arduino15"
 
 # Add Arduino CLI to PATH
 export PATH="/opt/render/project/src/arduino-cli:$PATH"
 
-# Verify Arduino CLI is available (ONLY check, don't install cores)
+# Verify Arduino CLI is available
 if [ -f "$ARDUINO_CLI_PATH" ]; then
     echo "✅ Arduino CLI found at: $ARDUINO_CLI_PATH"
     
     # Test Arduino CLI
     $ARDUINO_CLI_PATH version --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || echo "⚠️ Arduino CLI version check failed"
-    echo "✅ Arduino CLI is ready"
     
-    # Just list what's installed (for debugging)
-    echo "📋 Currently installed cores:"
-    $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null || echo "   (none - will install on-demand)"
+    # Check if cores are already installed (persistent disk)
+    echo "🔍 Checking persistent disk for installed cores..."
+    INSTALLED_CORES=$($ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null | grep -v "ID" | wc -l)
+    
+    if [ "$INSTALLED_CORES" -gt 0 ]; then
+        echo "✅ Found $INSTALLED_CORES core(s) on persistent disk!"
+        echo "📋 Installed cores:"
+        $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null
+        echo "⚡ Compiles will be INSTANT!"
+    else
+        echo "📦 No cores found - installing essential cores to persistent disk..."
+        echo "💡 This is a ONE-TIME installation (will persist across restarts)"
+        
+        # Install Arduino AVR core (most common, ~30 seconds)
+        echo "📦 Installing Arduino AVR core..."
+        $ARDUINO_CLI_PATH core install arduino:avr --config-file "$ARDUINO_CONFIG_FILE" 2>&1 | grep -v "Downloading\|Extracting" || echo "⚠️ AVR core installation had issues"
+        
+        # Install common libraries
+        echo "📚 Installing common libraries..."
+        $ARDUINO_CLI_PATH lib install Servo --config-file "$ARDUINO_CONFIG_FILE" 2>&1 | grep -v "Downloading" || true
+        $ARDUINO_CLI_PATH lib install "LiquidCrystal I2C" --config-file "$ARDUINO_CONFIG_FILE" 2>&1 | grep -v "Downloading" || true
+        
+        echo "✅ Essential cores and libraries installed to persistent disk!"
+        echo "💡 ESP32 core will install on first ESP32 compile (3-5 min, then cached)"
+    fi
     
     echo ""
-    echo "💡 Cores and libraries will be installed automatically when needed"
-    echo "💡 First compilation per board type will take longer (30s - 5min)"
-    echo "💡 Subsequent compilations will be instant"
+    echo "✅ Arduino CLI ready with persistent storage"
+    echo "⚡ All compiles will be INSTANT (cores cached on disk)"
     echo ""
 else
     echo "⚠️ Arduino CLI not found at expected location"
