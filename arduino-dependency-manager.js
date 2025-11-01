@@ -1,7 +1,8 @@
 /**
  * Arduino Dependency Manager
  * Handles on-demand installation of Arduino cores and libraries
- * Only installs what's needed for the specific board being compiled
+ * Optimized for PERSISTENT DISK - checks disk first, installs only if missing
+ * Cores persist across restarts on /opt/render/project/src/.arduino15
  */
 
 const { exec } = require('child_process');
@@ -10,16 +11,18 @@ const execPromise = util.promisify(exec);
 
 class ArduinoDependencyManager {
     constructor() {
-        // Track installed dependencies in memory (per session)
+        // Track installed dependencies in memory (per session cache)
         this.installedCores = new Set();
         this.installedLibraries = new Set();
         
-        // Arduino CLI paths
+        // Arduino CLI paths (PERSISTENT DISK)
         this.cliPath = process.env.ARDUINO_CLI_PATH || '/opt/render/project/src/arduino-cli/arduino-cli';
         this.configFile = process.env.ARDUINO_CONFIG_FILE || '/opt/render/project/src/.arduino15/arduino-cli.yaml';
+        this.persistentDisk = '/opt/render/project/src/.arduino15';
         
         console.log('🔧 Arduino Dependency Manager initialized');
-        console.log('📦 Cores and libraries will be installed on-demand');
+        console.log('💾 Using PERSISTENT DISK at:', this.persistentDisk);
+        console.log('⚡ Cores will persist across restarts!');
     }
 
     /**
