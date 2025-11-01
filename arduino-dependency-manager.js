@@ -34,8 +34,8 @@ class ArduinoDependencyManager {
             'arduino-nano': 'arduino:avr',
             'arduino-mega': 'arduino:avr',
             'arduino-leonardo': 'arduino:avr',
-            'esp32-s3': 'esp32:esp32@2.0.14',
-            'esp32': 'esp32:esp32@2.0.14',
+            'esp32-s3': 'esp32:esp32@3.0.7', // Updated to v3.x for ledcAttach API
+            'esp32': 'esp32:esp32@3.0.7',    // Updated to v3.x for ledcAttach API
             'uno-x': 'MiniCore:avr',
             'unox': 'MiniCore:avr'
         };

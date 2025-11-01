@@ -30,12 +30,13 @@ if [ -f "$ARDUINO_CLI_PATH" ]; then
     
     # Check if cores are already installed (persistent disk)
     echo "🔍 Checking persistent disk for installed cores..."
-    INSTALLED_CORES=$($ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null | grep -v "ID" | wc -l)
+    CORE_LIST=$($ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null)
+    INSTALLED_CORES=$(echo "$CORE_LIST" | grep -v "^ID" | grep -v "^No platforms" | grep -c "^" || echo "0")
     
     if [ "$INSTALLED_CORES" -gt 0 ]; then
         echo "✅ Found $INSTALLED_CORES core(s) on persistent disk!"
         echo "📋 Installed cores:"
-        $ARDUINO_CLI_PATH core list --config-file "$ARDUINO_CONFIG_FILE" 2>/dev/null
+        echo "$CORE_LIST"
         echo "⚡ Compiles will be INSTANT!"
     else
         echo "📦 No cores found - installing essential cores to persistent disk..."
