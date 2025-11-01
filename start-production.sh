@@ -72,13 +72,14 @@ echo "✅ Temp directory ready for Arduino compilation"
 echo "🎯 Starting Node.js server..."
 echo "📍 Server will be available on port $PORT"
 
-# Use the appropriate server file
+# Use the appropriate server file with memory optimization
 if [ -f "backend-server.js" ]; then
     echo "🔧 Using backend-server.js"
-    node backend-server.js
+    echo "💾 Starting with memory optimization (--expose-gc --max-old-space-size=450)"
+    node --expose-gc --max-old-space-size=450 backend-server.js
 elif [ -f "server.js" ]; then
     echo "🔧 Using server.js"
-    node server.js
+    node --expose-gc --max-old-space-size=450 server.js
 else
     echo "❌ No server file found!"
     exit 1
