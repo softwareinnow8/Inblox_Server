@@ -337,8 +337,15 @@ app.post("/api/compile-esp32", async (req, res) => {
     console.log(`📋 Compile command: ${compileCmd}`);
     console.log(`⏳ Starting compilation... This may take 3-5 minutes for large ESP32 sketches.`);
     
+    // Force garbage collection before compilation to free memory
+    if (global.gc) {
+      console.log('🧹 Running garbage collection to free memory...');
+      global.gc();
+    }
+    
     const { stdout, stderr } = await execAsync(compileCmd, { 
-      timeout: 300000 // 5 minutes - ESP32 S3 compilation can take very long for large sketches
+      timeout: 300000, // 5 minutes - ESP32 S3 compilation can take very long for large sketches
+      maxBuffer: 10 * 1024 * 1024 // 10 MB buffer for compilation output
     });
 
     console.log("✅ ESP32 Compilation successful");
@@ -422,11 +429,23 @@ app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
 
+// Root endpoint - quick response for health checks
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    message: "InBlox Backend API",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Health check endpoint - MUST respond quickly even during compilation
 app.get("/api/health", (req, res) => {
-  res.json({
+  res.status(200).json({
     status: "OK",
     timestamp: new Date().toISOString(),
     message: "Backend API is running",
+    uptime: process.uptime(),
   });
 });
 
