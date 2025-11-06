@@ -7,6 +7,9 @@
 
 const { exec } = require('child_process');
 const util = require('util');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const execPromise = util.promisify(exec);
 
 class ArduinoDependencyManager {
@@ -15,12 +18,38 @@ class ArduinoDependencyManager {
         this.installedCores = new Set();
         this.installedLibraries = new Set();
         
-        // Arduino CLI paths (PERSISTENT DISK)
-        this.cliPath = process.env.ARDUINO_CLI_PATH || '/opt/render/project/src/arduino-cli/arduino-cli';
-        this.configFile = process.env.ARDUINO_CONFIG_FILE || '/opt/render/project/src/.arduino15/arduino-cli.yaml';
-        this.persistentDisk = '/opt/render/project/src/.arduino15';
+        // Detect OS
+        const isWindows = os.platform() === 'win32';
+        
+        // Arduino CLI paths (OS-dependent)
+        if (isWindows) {
+            // Windows paths - check multiple locations
+            const possiblePaths = [
+                'C:\\Program Files\\Arduino CLI\\arduino-cli.exe',
+                'C:\\arduino-cli\\arduino-cli.exe',
+                path.join(os.homedir(), 'AppData', 'Local', 'Arduino15', 'arduino-cli.exe')
+            ];
+            
+            this.cliPath = process.env.ARDUINO_CLI_PATH || 'arduino-cli'; // Default to PATH
+            for (const testPath of possiblePaths) {
+                if (require('fs').existsSync(testPath)) {
+                    this.cliPath = testPath;
+                    break;
+                }
+            }
+            
+            this.configFile = process.env.ARDUINO_CONFIG_FILE || path.join(os.homedir(), '.arduino15', 'arduino-cli.yaml');
+            this.persistentDisk = path.join(os.homedir(), '.arduino15');
+        } else {
+            // Linux/Render paths
+            this.cliPath = process.env.ARDUINO_CLI_PATH || '/opt/render/project/src/arduino-cli/arduino-cli';
+            this.configFile = process.env.ARDUINO_CONFIG_FILE || '/opt/render/project/src/.arduino15/arduino-cli.yaml';
+            this.persistentDisk = '/opt/render/project/src/.arduino15';
+        }
         
         console.log('🔧 Arduino Dependency Manager initialized');
+        console.log('🖥️  Platform:', os.platform());
+        console.log('📍 CLI Path:', this.cliPath);
         console.log('💾 Using PERSISTENT DISK at:', this.persistentDisk);
         console.log('⚡ Cores will persist across restarts!');
     }

@@ -256,6 +256,225 @@ app.post("/api/compile", async (req, res) => {
   }
 });
 
+// Compile and Upload Endpoint for Uno X (MiniCore with Urboot)
+app.options("/api/compile-and-upload", cors());
+
+app.post("/api/compile-and-upload", async (req, res) => {
+  let { code, boardType = "uno-x", port } = req.body;
+  
+  if (!code) {
+    return res.status(400).json({ error: "No code provided" });
+  }
+
+  if (!port) {
+    return res.status(400).json({ error: "No port provided" });
+  }
+
+  // Map boardType to FQBN
+  const boardFQBNMap = {
+    'arduino-uno': 'arduino:avr:uno',
+    'arduino-nano': 'arduino:avr:nano',
+    'arduino-mega': 'arduino:avr:mega',
+    'uno-x': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+    'unox': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+    'minicore-328p': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external'
+  };
+  
+  const board = boardFQBNMap[boardType] || 'arduino:avr:uno';
+
+  const tempDir = path.join(__dirname, "../temp", Date.now().toString());
+  const sketchPath = path.join(tempDir, "sketch");
+  const sketchFile = path.join(sketchPath, "sketch.ino");
+
+  try {
+    fs.mkdirSync(sketchPath, { recursive: true });
+    fs.writeFileSync(sketchFile, code);
+
+    console.log(`📝 Compiling and uploading to ${boardType} on port ${port}...`);
+    console.log(`📋 FQBN: ${board}`);
+
+    // ON-DEMAND: Ensure required core and libraries are installed
+    console.log(`🔍 Ensuring dependencies for ${boardType}...`);
+    await dependencyManager.ensureDependencies(code, boardType);
+    console.log(`✅ Dependencies ready`);
+
+    // Detect OS and use appropriate Arduino CLI path
+    const os = require("os");
+    const isWindows = os.platform() === "win32";
+    
+    let arduinoCliPath = "arduino-cli";
+    const possiblePaths = isWindows 
+      ? [
+          "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+          "C:\\arduino-cli\\arduino-cli.exe"
+        ]
+      : [
+          "/opt/render/project/src/arduino-cli/arduino-cli",
+          "/usr/local/bin/arduino-cli",
+          "/usr/bin/arduino-cli"
+        ];
+    
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        arduinoCliPath = testPath;
+        break;
+      }
+    }
+
+    console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
+    console.log(`🖥️  Platform: ${os.platform()}`);
+    
+    // Verify Arduino CLI exists
+    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
+      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
+      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}`);
+    }
+
+    // Set config file path
+    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
+      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
+      : "";
+    
+    console.log(`⚙️  Config file: ${configFile || 'default'}`);
+
+    // STEP 1: Compile
+    console.log(`🔨 Step 1: Compiling sketch...`);
+    const { stdout: compileOut, stderr: compileErr } = await execAsync(
+      `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
+      { timeout: 30000 }
+    );
+
+    console.log("✅ Compilation successful");
+    if (compileOut) console.log("📋 Compiler output:", compileOut);
+    if (compileErr) console.log("⚠️  Compiler warnings:", compileErr);
+
+    // STEP 2: Upload
+    console.log(`📤 Step 2: Uploading to ${port}...`);
+    console.log(`🔧 Using avrdude with urclock programmer for Urboot bootloader`);
+    
+    const { stdout: uploadOut, stderr: uploadErr } = await execAsync(
+      `"${arduinoCliPath}" upload --fqbn ${board} ${configFile} --port ${port} --input-dir "${tempDir}"`,
+      { timeout: 60000 }
+    );
+
+    console.log("✅ Upload successful!");
+    if (uploadOut) console.log("📋 Upload output:", uploadOut);
+    if (uploadErr) console.log("⚠️  Upload info:", uploadErr);
+
+    // Read HEX file for response
+    const hexFile = path.join(tempDir, "sketch.ino.hex");
+    const hexContent = fs.readFileSync(hexFile, "utf8");
+    const hexBytes = parseIntelHex(hexContent);
+
+    // Cleanup
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    res.json({
+      success: true,
+      message: "Code compiled and uploaded successfully!",
+      size: hexBytes.length,
+      port: port,
+      board: boardType
+    });
+
+  } catch (error) {
+    console.error("❌ Compile and upload failed:", error.message);
+    console.error("Error details:", error);
+
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.toString()
+    });
+  }
+});
+
+// List Available Ports Endpoint
+app.options("/api/ports", cors());
+
+app.get("/api/ports", async (req, res) => {
+  try {
+    console.log('📋 Listing available serial ports...');
+    
+    // Detect OS and use appropriate Arduino CLI path
+    const os = require("os");
+    const isWindows = os.platform() === "win32";
+    
+    let arduinoCliPath = "arduino-cli";
+    const possiblePaths = isWindows 
+      ? ["C:\\arduino-cli\\arduino-cli.exe"]
+      : [
+          "/opt/render/project/src/arduino-cli/arduino-cli",
+          "/usr/local/bin/arduino-cli",
+          "/usr/bin/arduino-cli"
+        ];
+    
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        arduinoCliPath = testPath;
+        break;
+      }
+    }
+
+    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
+      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
+      : "";
+
+    // List boards/ports
+    const { stdout } = await execAsync(
+      `"${arduinoCliPath}" board list ${configFile}`,
+      { timeout: 10000 }
+    );
+
+    console.log('📋 Raw output:', stdout);
+
+    // Parse the output
+    const lines = stdout.split('\n');
+    const ports = [];
+    
+    for (const line of lines) {
+      // Skip header and empty lines
+      if (line.includes('Port') || line.includes('Protocol') || line.trim() === '') {
+        continue;
+      }
+      
+      // Extract port path (first column)
+      const parts = line.trim().split(/\s+/);
+      if (parts.length > 0 && parts[0]) {
+        const portPath = parts[0];
+        // Filter out non-serial ports
+        if (portPath.includes('COM') || portPath.includes('/dev/tty') || portPath.includes('/dev/cu')) {
+          ports.push({
+            path: portPath,
+            type: parts[1] || 'Serial',
+            board: parts[2] || 'Unknown'
+          });
+        }
+      }
+    }
+
+    console.log(`✅ Found ${ports.length} serial ports`);
+    
+    res.json({
+      success: true,
+      ports: ports,
+      count: ports.length
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to list ports:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      ports: []
+    });
+  }
+});
+
 // ESP32 Compiler Endpoint - Handle OPTIONS preflight
 app.options("/api/compile-esp32", cors());
 
