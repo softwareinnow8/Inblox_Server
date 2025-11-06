@@ -51,8 +51,11 @@ app.use(
         "http://www.inblox.in",
       ];
 
-      // Check if origin is in allowed list or matches Vercel pattern
-      if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
+      // Check if origin is in allowed list, matches Vercel pattern, or is localhost
+      if (allowedOrigins.includes(origin) || 
+          /\.vercel\.app$/.test(origin) ||
+          /^http:\/\/localhost:\d+$/.test(origin) ||
+          /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
         return callback(null, true);
       }
 
