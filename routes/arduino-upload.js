@@ -27,6 +27,18 @@ const BOARD_CONFIGS = {
         programmer: 'arduino',
         baudRate: 115200,
         protocol: 'arduino'
+    },
+    'uno-x': {
+        fqbn: 'arduino:avr:uno',
+        programmer: 'arduino',
+        baudRate: 115200,
+        protocol: 'arduino'
+    },
+    'unox': {
+        fqbn: 'arduino:avr:uno',
+        programmer: 'arduino',
+        baudRate: 115200,
+        protocol: 'arduino'
     }
 };
 

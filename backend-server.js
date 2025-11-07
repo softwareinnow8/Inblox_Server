@@ -156,8 +156,8 @@ app.post("/api/compile", async (req, res) => {
       'arduino-uno': 'arduino:avr:uno',
       'arduino-nano': 'arduino:avr:nano',
       'arduino-mega': 'arduino:avr:mega',
-      'uno-x': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
-      'unox': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+      'uno-x': 'arduino:avr:uno',  // Uno X is identical to Arduino Uno
+      'unox': 'arduino:avr:uno',   // Uno X is identical to Arduino Uno
       'minicore-328p': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external'
     };
     board = boardFQBNMap[boardType] || 'arduino:avr:uno';
@@ -278,8 +278,8 @@ app.post("/api/compile-and-upload", async (req, res) => {
     'arduino-uno': 'arduino:avr:uno',
     'arduino-nano': 'arduino:avr:nano',
     'arduino-mega': 'arduino:avr:mega',
-    'uno-x': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
-    'unox': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external',
+    'uno-x': 'arduino:avr:uno',  // Uno X is identical to Arduino Uno
+    'unox': 'arduino:avr:uno',   // Uno X is identical to Arduino Uno
     'minicore-328p': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external'
   };
   
