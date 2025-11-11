@@ -95,6 +95,10 @@ app.use((req, res, next) => {
     (origin && /\.vercel\.app$/.test(origin))
   ) {
     res.header("Access-Control-Allow-Origin", origin);
+  } else if (!origin) {
+    // Allow requests with no origin (Brave browser, mobile apps, etc.)
+    res.header("Access-Control-Allow-Origin", "*");
+    console.log(`⚠️  No origin header - setting Access-Control-Allow-Origin: *`);
   }
 
   res.header("Access-Control-Allow-Credentials", "true");
