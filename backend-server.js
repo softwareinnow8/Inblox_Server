@@ -483,11 +483,30 @@ app.options("/api/compile-esp32", cors());
 
 // ESP32 Compiler Endpoint
 app.post("/api/compile-esp32", async (req, res) => {
+  // Enhanced CORS debugging
+  console.log(`\n🔧 ESP32 Compile Request Received`);
+  console.log(`Origin: ${req.headers.origin || 'undefined'}`);
+  console.log(`Referer: ${req.headers.referer || 'undefined'}`);
+  console.log(`User-Agent: ${req.headers['user-agent'] || 'undefined'}`);
+  console.log(`Content-Type: ${req.headers['content-type'] || 'undefined'}`);
+  
+  // Ensure CORS headers are set even if origin is undefined
+  if (!req.headers.origin) {
+    res.header("Access-Control-Allow-Origin", "*");
+    console.log(`⚠️  No origin header - setting Access-Control-Allow-Origin: *`);
+  }
+  
   let { code, board, boardType } = req.body;
 
   if (!code) {
+    console.log(`❌ No code provided in request body`);
     return res.status(400).json({ error: "No code provided" });
   }
+  
+  console.log(`✅ Code received (${code.length} bytes)`);
+  console.log(`Board Type: ${boardType || 'not specified'}`);
+  console.log(`Board FQBN: ${board || 'not specified'}`);
+
 
   // Handle boardType parameter (convert to full FQBN)
   if (!board && boardType) {
