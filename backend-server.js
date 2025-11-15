@@ -116,6 +116,47 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// Serve static files from parent directory for compilation test
+app.use('/static', express.static(path.join(__dirname, '..', 'static')));
+app.use('/test', express.static(path.join(__dirname, '..', 'test')));
+app.use('/IDE_UPLOAD', express.static(path.join(__dirname, '..', 'IDE_UPLOAD')));
+
+// Serve the compilation test page
+app.get('/compile-test.html', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'compile-firmware-test.html'));
+});
+
+// Upload firmware endpoint
+app.post('/api/upload-firmware', async (req, res) => {
+    const { hexData, boardType = 'arduino-nano' } = req.body;
+    
+    if (!hexData) {
+        return res.status(400).json({ success: false, error: 'No hex data provided' });
+    }
+
+    try {
+        console.log(`🚀 Firmware upload request for ${boardType}`);
+        console.log(`📦 Hex data size: ${hexData.length} bytes`);
+        
+        // For now, we'll return success since the actual upload happens via Web Serial
+        // In a full implementation, this would interface with the serial port
+        
+        res.json({
+            success: true,
+            message: 'Firmware upload initiated successfully',
+            size: hexData.length,
+            boardType: boardType
+        });
+        
+    } catch (error) {
+        console.error('❌ Upload error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // MongoDB connection with fallback
 const connectDB = async () => {
   try {
@@ -277,17 +318,22 @@ app.post("/api/compile-and-upload", async (req, res) => {
     return res.status(400).json({ error: "No port provided" });
   }
 
-  // Map boardType to FQBN
+  // Map boardType to FQBN with auto-detection for Nano bootloaders
   const boardFQBNMap = {
     'arduino-uno': 'arduino:avr:uno',
-    'arduino-nano': 'arduino:avr:nano',
+    'arduino-nano': 'arduino:avr:nano', // Will try new bootloader first, then old
     'arduino-mega': 'arduino:avr:mega',
     'uno-x': 'arduino:avr:uno',  // Uno X is identical to Arduino Uno
     'unox': 'arduino:avr:uno',   // Uno X is identical to Arduino Uno
     'minicore-328p': 'MiniCore:avr:328:variant=modelP,BOD=2v7,LTO=Os,clock=16MHz_external'
   };
   
-  const board = boardFQBNMap[boardType] || 'arduino:avr:uno';
+  const baseboard = boardFQBNMap[boardType] || 'arduino:avr:uno';
+  
+  // For Arduino Nano, we'll try both bootloader types
+  const boardsToTry = boardType === 'arduino-nano' 
+    ? ['arduino:avr:nano', 'arduino:avr:nano:cpu=atmega328old'] 
+    : [baseboard];
 
   const tempDir = path.join(__dirname, "../temp", Date.now().toString());
   const sketchPath = path.join(tempDir, "sketch");
@@ -298,7 +344,7 @@ app.post("/api/compile-and-upload", async (req, res) => {
     fs.writeFileSync(sketchFile, code);
 
     console.log(`📝 Compiling and uploading to ${boardType} on port ${port}...`);
-    console.log(`📋 FQBN: ${board}`);
+    console.log(`📋 Boards to try: ${boardsToTry.join(', ')}`);
 
     // ON-DEMAND: Ensure required core and libraries are installed
     console.log(`🔍 Ensuring dependencies for ${boardType}...`);
@@ -344,29 +390,61 @@ app.post("/api/compile-and-upload", async (req, res) => {
     
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
-    // STEP 1: Compile
-    console.log(`🔨 Step 1: Compiling sketch...`);
-    const { stdout: compileOut, stderr: compileErr } = await execAsync(
-      `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
-      { timeout: 30000 }
-    );
-
-    console.log("✅ Compilation successful");
-    if (compileOut) console.log("📋 Compiler output:", compileOut);
-    if (compileErr) console.log("⚠️  Compiler warnings:", compileErr);
-
-    // STEP 2: Upload
-    console.log(`📤 Step 2: Uploading to ${port}...`);
-    console.log(`🔧 Using avrdude with urclock programmer for Urboot bootloader`);
+    // Try each board type until one works (auto-detection for Nano bootloaders)
+    let uploadSuccess = false;
+    let successfulBoard = null;
+    let lastError = null;
     
-    const { stdout: uploadOut, stderr: uploadErr } = await execAsync(
-      `"${arduinoCliPath}" upload --fqbn ${board} ${configFile} --port ${port} --input-dir "${tempDir}"`,
-      { timeout: 60000 }
-    );
+    for (const board of boardsToTry) {
+      try {
+        console.log(`🔨 Trying compilation with FQBN: ${board}`);
+        
+        // STEP 1: Compile
+        const { stdout: compileOut, stderr: compileErr } = await execAsync(
+          `"${arduinoCliPath}" compile --fqbn ${board} ${configFile} "${sketchPath}" --output-dir "${tempDir}"`,
+          { timeout: 30000 }
+        );
 
-    console.log("✅ Upload successful!");
-    if (uploadOut) console.log("📋 Upload output:", uploadOut);
-    if (uploadErr) console.log("⚠️  Upload info:", uploadErr);
+        console.log("✅ Compilation successful");
+        if (compileOut) console.log("📋 Compiler output:", compileOut);
+        if (compileErr) console.log("⚠️  Compiler warnings:", compileErr);
+
+        // STEP 2: Upload
+        console.log(`📤 Uploading to ${port} with ${board}...`);
+        
+        const { stdout: uploadOut, stderr: uploadErr } = await execAsync(
+          `"${arduinoCliPath}" upload --fqbn ${board} ${configFile} --port ${port} --input-dir "${tempDir}"`,
+          { timeout: 60000 }
+        );
+
+        console.log("✅ Upload successful!");
+        if (uploadOut) console.log("📋 Upload output:", uploadOut);
+        if (uploadErr) console.log("⚠️  Upload info:", uploadErr);
+        
+        uploadSuccess = true;
+        successfulBoard = board;
+        break; // Success! Exit the loop
+        
+      } catch (error) {
+        console.log(`❌ Failed with ${board}: ${error.message}`);
+        lastError = error;
+        
+        // Check if it's a sync error (wrong bootloader)
+        if (error.message.includes('not in sync') || error.message.includes('stk500_getsync')) {
+          console.log(`🔄 Bootloader mismatch detected, trying next board type...`);
+          continue; // Try next board type
+        } else {
+          // Other error, don't continue
+          throw error;
+        }
+      }
+    }
+    
+    if (!uploadSuccess) {
+      throw lastError || new Error('Failed to upload with any board configuration');
+    }
+    
+    console.log(`🎯 Successfully uploaded using: ${successfulBoard}`);
 
     // Read HEX file for response
     const hexFile = path.join(tempDir, "sketch.ino.hex");

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Compile Firmware Test</title>
+</head>
+<body>
+    <h1>Compile Updated Firmware</h1>
+    <button onclick="compileFirmware()">Compile Firmware</button>
+    <button onclick="uploadFirmware()" id="uploadBtn" disabled>Upload to Arduino</button>
+    <div id="output"></div>
+
+    <script>
+        let compiledHex = null;
+
+        async function compileFirmware() {
+            log("🔨 Starting firmware compilation...");
+            
+            try {
+                // Read the updated firmware code from static folder
+                const response = await fetch('/static/Arduino_Nano_Firmware_Simple.ino');
+                const firmwareCode = await response.text();
+                
+                // Store source code for upload
+                firmwareSourceCode = firmwareCode;
+                
+                log("📄 Firmware code loaded, sending to local backend...");
+                
+                // Send to LOCAL backend for compilation (same origin - no CORS issues)
+                const compileResponse = await fetch('/api/compile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        code: firmwareCode,
+                        board: 'arduino:avr:nano',
+                        boardType: 'arduino-nano'
+                    })
+                });
+
+                if (!compileResponse.ok) {
+                    const errorText = await compileResponse.text();
+                    throw new Error(`Compilation failed: ${compileResponse.status} - ${errorText}`);
+                }
+
+                const result = await compileResponse.json();
+                
+                if (result.success && result.hex) {
+                    compiledHex = result.hex;
+                    log(`✅ Compilation successful! Hex size: ${result.hex.length} bytes`);
+                    log("🎯 Ready to upload to Arduino");
+                    document.getElementById('uploadBtn').disabled = false;
+                } else {
+                    throw new Error(result.error || 'Compilation failed');
+                }
+
+            } catch (error) {
+                log(`❌ Compilation error: ${error.message}`);
+            }
+        }
+
+        let firmwareSourceCode = null;
+
+        async function uploadFirmware() {
+            if (!compiledHex || !firmwareSourceCode) {
+                log("❌ No compiled firmware or source code available");
+                return;
+            }
+
+            log("🚀 Starting firmware upload...");
+            
+            try {
+                // First, detect Arduino port using Web Serial
+                log("🔌 Detecting Arduino port...");
+                
+                let detectedPort = null;
+                try {
+                    const port = await navigator.serial.requestPort();
+                    const portInfo = port.getInfo();
+                    
+                    // Try to get port name (this is tricky with Web Serial)
+                    // We'll let the user select the port and then try common ports
+                    detectedPort = null; // Web Serial doesn't give us the COM port name directly
+                    log("📱 Port selected via Web Serial");
+                } catch (portError) {
+                    log("⚠️ Port selection cancelled, will try common ports");
+                }
+                
+                log("📡 Uploading via backend API (compile + upload)...");
+                
+                // Try common COM ports if no specific port detected
+                const portsToTry = detectedPort ? [detectedPort] : ['COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'COM10'];
+                
+                let uploadSuccess = false;
+                let lastError = null;
+                
+                for (const port of portsToTry) {
+                    try {
+                        log(`🔍 Trying port: ${port}`);
+                        
+                        const uploadResponse = await fetch('/api/compile-and-upload', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                code: firmwareSourceCode,
+                                boardType: 'arduino-nano',
+                                port: port
+                            })
+                        });
+
+                        if (!uploadResponse.ok) {
+                            const errorText = await uploadResponse.text();
+                            lastError = `Upload failed on ${port}: ${uploadResponse.status} - ${errorText}`;
+                            continue; // Try next port
+                        }
+
+                        const result = await uploadResponse.json();
+                        
+                        if (result.success) {
+                            log("✅ Firmware uploaded successfully!");
+                            log(`📡 Uploaded to port: ${port}`);
+                            log("🎯 Arduino now has the updated firmware with debug logging");
+                            log("🧪 Test with arduino-debug-test.html to verify");
+                            log("💡 You should now see debug responses from DIGITAL_WRITE");
+                            uploadSuccess = true;
+                            break;
+                        } else {
+                            lastError = result.error || 'Upload failed';
+                            continue; // Try next port
+                        }
+                    } catch (portError) {
+                        lastError = `Error on ${port}: ${portError.message}`;
+                        continue; // Try next port
+                    }
+                }
+                
+                if (!uploadSuccess) {
+                    throw new Error(lastError || 'Failed to upload on any port');
+                }
+
+            } catch (error) {
+                log(`❌ Upload error: ${error.message}`);
+                log("📋 Manual upload options:");
+                log("1. Open Arduino IDE");
+                log("2. Load: d:\\inBlox\\static\\Arduino_Nano_Firmware_Simple.ino");
+                log("3. Select Arduino Nano board");
+                log("4. Upload to your Arduino");
+                log("5. Then test with arduino-debug-test.html");
+            }
+        }
+
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+            output.scrollTop = output.scrollHeight;
+        }
+    </script>
+</body>
+</html>
