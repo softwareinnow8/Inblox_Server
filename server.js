@@ -9,6 +9,9 @@ const fs = require("fs");
 const { promisify } = require("util");
 require("dotenv").config();
 
+// Import centralized database connection
+const connectDB = require("./db");
+
 const execAsync = promisify(exec);
 const authRoutes = require("./routes/auth");
 const projectRoutes = require("./routes/projects");
@@ -45,33 +48,7 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB connection with connection pooling for serverless
-let cachedConnection = null;
-const connectDB = async () => {
-  if (cachedConnection) {
-    return cachedConnection;
-  }
-
-  try {
-    const connection = await mongoose.connect(
-      process.env.MONGODB_URI || "mongodb://localhost:27017/scratch-gui",
-      {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        maxPoolSize: 10,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-        bufferCommands: false,
-      }
-    );
-    console.log("MongoDB connected successfully");
-    cachedConnection = connection;
-    return connection;
-  } catch (error) {
-    console.error("MongoDB connection error:", error);
-    throw error;
-  }
-};
+// MongoDB connection is now handled by db.js (centralized)
 
 // Socket.IO setup
 const io = new Server(server, {
@@ -289,13 +266,21 @@ const handler = async (req, res) => {
 
 // For local development
 const startServer = async () => {
-  const PORT = process.env.PORT || 3001;
-  await connectDB();
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Socket.IO server ready for hardware connections`);
-    console.log(`Arduino compiler endpoint ready at http://localhost:${PORT}/api/compile`);
-  });
+  try {
+    const PORT = process.env.PORT || 3001;
+    
+    // Connect to MongoDB using centralized connection
+    await connectDB();
+    
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📡 Socket.IO server ready for hardware connections`);
+      console.log(`🔧 Arduino compiler endpoint ready at http://localhost:${PORT}/api/compile`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error.message);
+    process.exit(1);
+  }
 };
 
 // Export for Vercel

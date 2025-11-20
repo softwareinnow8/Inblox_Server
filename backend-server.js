@@ -9,6 +9,9 @@ const path = require("path");
 const { promisify } = require("util");
 require("dotenv").config();
 
+// Import centralized database connection
+const connectDB = require("./db");
+
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
@@ -157,36 +160,7 @@ app.post('/api/upload-firmware', async (req, res) => {
     }
 });
 
-// MongoDB connection with fallback
-const connectDB = async () => {
-  try {
-    const mongoUri =
-      process.env.MONGODB_URI || "mongodb://localhost:27017/scratch-gui";
-
-    console.log("Attempting to connect to MongoDB...");
-    console.log(
-      "MongoDB URI:",
-      mongoUri.replace(/\/\/.*@/, "//<credentials>@")
-    ); // Hide credentials in log
-
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log("MongoDB connected successfully");
-  } catch (error) {
-    console.error("MongoDB connection error:", error.message);
-    console.log("\n🔧 SETUP INSTRUCTIONS:");
-    console.log(
-      "1. Install MongoDB locally: https://www.mongodb.com/try/download/community"
-    );
-    console.log("2. OR set up MongoDB Atlas: https://www.mongodb.com/atlas");
-    console.log("3. Update the MONGODB_URI in your .env file");
-    console.log(
-      "\n⚠️  Server will continue without database - authentication will not work\n"
-    );
-  }
-};
+// MongoDB connection is now handled by db.js (centralized)
 
 // Arduino Compiler Endpoint - Handle OPTIONS preflight
 app.options("/api/compile", cors());
@@ -841,10 +815,18 @@ app.use("*", (req, res) => {
 
 // Start server
 const startServer = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Backend server running on port ${PORT}`);
-  });
+  try {
+    // Connect to MongoDB using centralized connection
+    await connectDB();
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Backend server running on port ${PORT}`);
+      console.log(`📡 API endpoints ready at http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error.message);
+    process.exit(1);
+  }
 };
 
 startServer();
