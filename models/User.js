@@ -24,24 +24,38 @@ const userSchema = new mongoose.Schema(
         },
         password: {
             type: String,
-            required: true,
             minlength: 6,
+            default: null, // Optional for OAuth users
         },
         firstName: {
             type: String,
-            required: true,
             trim: true,
             maxlength: 50,
         },
         lastName: {
             type: String,
-            required: true,
             trim: true,
             maxlength: 50,
         },
         avatar: {
             type: String,
             default: null,
+        },
+        // Google OAuth fields
+        googleId: {
+            type: String,
+            unique: true,
+            sparse: true,
+        },
+        googleEmail: {
+            type: String,
+            trim: true,
+            lowercase: true,
+        },
+        authProvider: {
+            type: String,
+            enum: ['local', 'google'],
+            default: 'local',
         },
         isVerified: {
             type: Boolean,
@@ -59,7 +73,7 @@ const userSchema = new mongoose.Schema(
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {
-    if (!this.isModified("password")) return next();
+    if (!this.isModified("password") || !this.password) return next();
 
     try {
         const salt = await bcrypt.genSalt(12);
