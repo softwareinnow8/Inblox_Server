@@ -307,7 +307,10 @@ router.get("/google/callback", async (req, res) => {
         googleId: sub,
         googleEmail: email,
         authProvider: 'google',
-        password: null
+        password: null,
+
+        isEmailVerified: true,
+        isVerified: true
       });
 
       await user.save();
