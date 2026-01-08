@@ -21,6 +21,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Middleware
+// Set security headers for OAuth compatibility
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  next();
+});
+
 app.use(
   cors({
     origin:
@@ -43,6 +50,8 @@ app.use(
             "http://www.inblox.in",
           ],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json());

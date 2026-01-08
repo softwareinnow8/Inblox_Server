@@ -3,9 +3,13 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { authenticateToken, JWT_SECRET } = require("../middleware/auth");
 const { OAuth2Client } = require("google-auth-library");
+const axios = require("axios");
 
 const router = express.Router();
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || "http://localhost:3000/auth/google/callback";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -201,46 +205,91 @@ router.post("/signout", (req, res) => {
 });
 
 // ================================
-// Google OAuth Routes
+// Google OAuth Routes (Server-Side Flow)
 // ================================
 
-// Google OAuth callback endpoint
-// Receives authorization code from frontend and exchanges it for user data
-router.post("/google-callback", async (req, res) => {
-  try {
-    const { token } = req.body; // This is the ID token from Google
+// Step 1: Redirect to Google OAuth
+router.get("/google", (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    console.error("Google OAuth not configured in environment variables");
+    return res.status(500).json({ error: "Server configuration error: Google OAuth not configured" });
+  }
 
-    if (!token) {
-      return res.status(400).json({ error: "Google token is required" });
+  const scopes = [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile"
+  ];
+
+  const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  googleAuthUrl.searchParams.append("client_id", GOOGLE_CLIENT_ID);
+  googleAuthUrl.searchParams.append("redirect_uri", GOOGLE_CALLBACK_URL);
+  googleAuthUrl.searchParams.append("response_type", "code");
+  googleAuthUrl.searchParams.append("scope", scopes.join(" "));
+  googleAuthUrl.searchParams.append("access_type", "offline");
+  googleAuthUrl.searchParams.append("prompt", "consent");
+
+  res.redirect(googleAuthUrl.toString());
+});
+
+// Step 2: Handle Google OAuth callback
+router.get("/google/callback", async (req, res) => {
+  try {
+    const { code, error } = req.query;
+
+    if (error) {
+      console.error("Google OAuth error:", error);
+      return res.redirect(`${FRONTEND_URL}/#/?error=google_auth_failed`);
     }
 
+    if (!code) {
+      return res.redirect(`${FRONTEND_URL}/#/?error=no_auth_code`);
+    }
+
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+      console.error("Google OAuth not configured");
+      return res.redirect(`${FRONTEND_URL}/#/?error=server_config_error`);
+    }
+
+    // Exchange authorization code for tokens
+    const tokenResponse = await axios.post("https://oauth2.googleapis.com/token", {
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_CALLBACK_URL,
+      grant_type: "authorization_code"
+    });
+
+    const { id_token } = tokenResponse.data;
+
+    if (!id_token) {
+      return res.redirect(`${FRONTEND_URL}/#/?error=no_id_token`);
+    }
+
+    // Verify the ID token
     const client = new OAuth2Client(GOOGLE_CLIENT_ID);
-    const ticket = await client.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
+    const ticket = await client.verifyIdToken({
+      idToken: id_token,
+      audience: GOOGLE_CLIENT_ID
+    });
+
     const googleProfile = ticket.getPayload();
     const { email, given_name, family_name, picture, sub } = googleProfile;
 
     if (!email || !sub) {
-      return res.status(400).json({ error: "Invalid Google token" });
+      console.error("Invalid Google profile:", googleProfile);
+      return res.redirect(`${FRONTEND_URL}/#/?error=invalid_profile`);
     }
 
-    // Check if user exists with this Google ID or email
+    // Find or create user
     let user = await User.findOne({
-      $or: [{ googleId: sub }, { email }],
+      $or: [{ googleId: sub }, { email: email.toLowerCase() }]
     });
 
-    if (user && user.googleId !== sub) {
-      // User exists with email but different Google ID - could be linking accounts
-      // For now, we'll just update the Google ID
-      user.googleId = sub;
-      user.authProvider = 'google';
-      if (!user.avatar) user.avatar = picture;
-      await user.save();
-    } else if (!user) {
-      // Create new user from Google profile
-      // Generate username from email
+    if (!user) {
+      // Create new user
       let username = email.split('@')[0];
       
-      // Check if username already exists and generate unique one if needed
+      // Generate unique username
       let existingUser = await User.findOne({ username });
       let counter = 1;
       while (existingUser) {
@@ -258,10 +307,22 @@ router.post("/google-callback", async (req, res) => {
         googleId: sub,
         googleEmail: email,
         authProvider: 'google',
-        password: null, // No password for OAuth users
+        password: null
       });
 
       await user.save();
+    } else {
+      // Update existing user
+      if (user.googleId !== sub) {
+        user.googleId = sub;
+      }
+      if (!user.googleEmail) {
+        user.googleEmail = email;
+      }
+      user.authProvider = 'google';
+      if (!user.avatar && picture) {
+        user.avatar = picture;
+      }
     }
 
     // Update last login
@@ -271,117 +332,21 @@ router.post("/google-callback", async (req, res) => {
     // Generate JWT token
     const jwtToken = generateToken(user._id);
 
-    res.json({
-      message: "Google sign in successful",
-      token: jwtToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-        authProvider: user.authProvider,
-      },
-    });
+    // Redirect to frontend with token using hash-based routing
+    const userData = encodeURIComponent(JSON.stringify({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      avatar: user.avatar,
+      authProvider: user.authProvider
+    }));
+    
+    res.redirect(`${FRONTEND_URL}/#/?token=${jwtToken}&user=${userData}`);
   } catch (error) {
     console.error("Google callback error:", error);
-    res.status(500).json({ error: "Server error during Google sign in" });
-  }
-});
-
-// Alternative endpoint for exchanging authorization code
-router.post("/google-code-exchange", async (req, res) => {
-  try {
-    const { code, clientId } = req.body;
-
-    if (!code || !clientId) {
-      return res
-        .status(400)
-        .json({ error: "Authorization code and client ID are required" });
-    }
-
-    // Call Google's token endpoint to exchange code for tokens
-    const googleTokenUrl = "https://oauth2.googleapis.com/token";
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_CALLBACK_URL || "http://localhost:3000/auth/google/callback";
-
-    const axios = require("axios");
-    
-    const response = await axios.post(googleTokenUrl, {
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    });
-
-    const { id_token } = response.data;
-
-    const client = new OAuth2Client(GOOGLE_CLIENT_ID);
-    const ticket = await client.verifyIdToken({ idToken: id_token, audience: GOOGLE_CLIENT_ID });
-    const googleProfile = ticket.getPayload();
-    const { email, given_name, family_name, picture, sub } = googleProfile;
-
-    if (!email || !sub) {
-      return res.status(400).json({ error: "Invalid Google token" });
-    }
-
-    let user = await User.findOne({
-      $or: [{ googleId: sub }, { email }],
-    });
-
-    if (user && user.googleId !== sub) {
-      user.googleId = sub;
-      user.authProvider = 'google';
-      if (!user.avatar) user.avatar = picture;
-      await user.save();
-    } else if (!user) {
-      let username = email.split('@')[0];
-      let existingUser = await User.findOne({ username });
-      let counter = 1;
-      while (existingUser) {
-        username = `${email.split('@')[0]}${counter}`;
-        existingUser = await User.findOne({ username });
-        counter++;
-      }
-
-      user = new User({
-        username,
-        email: email.toLowerCase(),
-        firstName: given_name || 'User',
-        lastName: family_name || '',
-        avatar: picture || null,
-        googleId: sub,
-        googleEmail: email,
-        authProvider: 'google',
-        password: null,
-      });
-
-      await user.save();
-    }
-
-    user.lastLogin = new Date();
-    await user.save();
-
-    const jwtToken = generateToken(user._id);
-
-    res.json({
-      message: "Google sign in successful",
-      token: jwtToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-        authProvider: user.authProvider,
-      },
-    });
-  } catch (error) {
-    console.error("Google code exchange error:", error);
-    res.status(400).json({ error: "Failed to exchange authorization code" });
+    res.redirect(`${FRONTEND_URL}/#/?error=auth_failed`);
   }
 });
 
