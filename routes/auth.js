@@ -4,6 +4,7 @@ const User = require("../models/User");
 const { authenticateToken, JWT_SECRET } = require("../middleware/auth");
 const { OAuth2Client } = require("google-auth-library");
 const axios = require("axios");
+require('dotenv').config();
 
 const router = express.Router();
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -66,9 +67,17 @@ router.post("/signup", async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    // Set HttpOnly cookie
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
     res.status(201).json({
       message: "User created successfully",
-      token,
+      token, // Still return token for backward compatibility
       user: {
         id: user._id,
         username: user.username,
@@ -120,9 +129,17 @@ router.post("/signin", async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    // Set HttpOnly cookie
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
     res.json({
       message: "Sign in successful",
-      token,
+      token, // Still return token for backward compatibility
       user: {
         id: user._id,
         username: user.username,
@@ -199,9 +216,53 @@ router.get("/verify", authenticateToken, (req, res) => {
   res.json({ valid: true, user: req.user });
 });
 
-// Sign out route (optional - mainly for client-side token removal)
+// Sign out route - Clear HttpOnly cookie
 router.post("/signout", (req, res) => {
-  res.json({ message: "Signed out successfully" });
+  res.clearCookie("auth_token", {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+    secure: process.env.NODE_ENV === "production"
+  });
+  res.json({ message: "Signed out successfully", success: true });
+});
+
+// ✅ NEW: Get current user from cookie (SESSION VALIDATION)
+router.get("/me", async (req, res) => {
+  try {
+    const token = req.cookies?.auth_token;
+
+    if (!token) {
+      return res.status(401).json({ user: null, isAuthenticated: false });
+    }
+
+    // Verify JWT token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select("-password");
+
+    if (!user) {
+      return res.status(401).json({ user: null, isAuthenticated: false });
+    }
+
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+        authProvider: user.authProvider,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin
+      },
+      isAuthenticated: true
+    });
+  } catch (err) {
+    console.error("Session validation error:", err);
+    // Clear invalid cookie
+    res.clearCookie("auth_token");
+    res.status(401).json({ user: null, isAuthenticated: false });
+  }
 });
 
 // ================================
@@ -335,18 +396,16 @@ router.get("/google/callback", async (req, res) => {
     // Generate JWT token
     const jwtToken = generateToken(user._id);
 
-    // Redirect to frontend with token using hash-based routing
-    const userData = encodeURIComponent(JSON.stringify({
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      avatar: user.avatar,
-      authProvider: user.authProvider
-    }));
-    
-    res.redirect(`${FRONTEND_URL}/#/?token=${jwtToken}&user=${userData}`);
+    // ✅ Set HttpOnly cookie (SECURE)
+    res.cookie("auth_token", jwtToken, {
+      httpOnly: true,          // ❗ JavaScript cannot access
+      secure: process.env.NODE_ENV === "production", // true in production
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", // Required for cross-site
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
+    // Redirect to frontend (no token in URL)
+    res.redirect(`${FRONTEND_URL}/#/`);
   } catch (error) {
     console.error("Google callback error:", error);
     res.redirect(`${FRONTEND_URL}/#/?error=auth_failed`);

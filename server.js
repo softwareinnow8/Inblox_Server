@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -49,12 +50,15 @@ app.use(
             "http://inblox.in",
             "http://www.inblox.in",
           ],
-    credentials: true,
+    credentials: true, // ✅ REQUIRED for cookies
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json());
+
+app.use(cookieParser()); // ✅ Parse cookies from requests
+
 app.use(express.urlencoded({ extended: true }));
 
 // MongoDB connection is now handled by db.js (centralized)

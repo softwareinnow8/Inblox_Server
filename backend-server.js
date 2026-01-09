@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const cookieParser = require("cookie-parser"); // ✅ ADDED for secure cookies
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { exec } = require("child_process");
@@ -34,88 +35,56 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-// Enhanced CORS configuration with better error handling
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
+// ✅ CLEAN CORS Configuration - Single source of truth (NO CONFLICTS!)
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) {
+      console.log(`✅ CORS: No origin header (allowed for mobile/curl)`);
+      return callback(null, true);
+    }
 
-      const allowedOrigins = [
-        "http://localhost:3000",
-        "http://localhost:8601",
-        "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
-        "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
-        "https://scratch-gui-taupe-iota.vercel.app",
-        "https://scratch-78jvrzbeb-innow8s-projects.vercel.app",
-        "https://inblox.in",
-        "https://www.inblox.in",
-        "http://inblox.in",
-        "http://www.inblox.in",
-      ];
+    const allowedOrigins = [
+      "http://localhost:3000",
+      "http://localhost:8601",
+      "http://localhost:3001",
+      "https://inblox.in",
+      "https://www.inblox.in",
+      "http://inblox.in",
+      "http://www.inblox.in",
+    ];
 
-      // Check if origin is in allowed list, matches Vercel pattern, or is localhost
-      if (allowedOrigins.includes(origin) || 
-          /\.vercel\.app$/.test(origin) ||
-          /^http:\/\/localhost:\d+$/.test(origin) ||
-          /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
-        return callback(null, true);
-      }
+    // Check if origin is allowed (exact match or pattern)
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      /^https:\/\/.*\.vercel\.app$/.test(origin) ||
+      /^http:\/\/localhost:\d+$/.test(origin) ||
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
 
-      console.log(`CORS: Blocked origin: ${origin}`);
-      return callback(new Error("Not allowed by CORS"), false);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    exposedHeaders: ["Content-Length", "X-Foo", "X-Bar"],
-    optionsSuccessStatus: 200, // Some legacy browsers choke on 204
-    preflightContinue: false,
-  })
-);
+    if (isAllowed) {
+      console.log(`✅ CORS: Allowed origin: ${origin}`);
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS: Blocked origin: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true, // ✅ REQUIRED for HttpOnly cookies
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Content-Length"],
+  optionsSuccessStatus: 200,
+  preflightContinue: false,
+};
 
-// Handle preflight requests explicitly
-app.options("*", cors()); // Enable pre-flight for all routes
+// Apply CORS middleware (single, clean configuration)
+app.use(cors(corsOptions));
 
-// Additional CORS middleware to ensure headers are always set
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://localhost:8601",
-    "https://scratch-mq1h2ldwo-innow8s-projects.vercel.app",
-    "https://scratch-dqqpfzm64-innow8s-projects.vercel.app",
-    "https://scratch-gui-taupe-iota.vercel.app",
-    "https://scratch-78jvrzbeb-innow8s-projects.vercel.app",
-    "https://inblox.in",
-    "https://www.inblox.in",
-    "http://inblox.in",
-    "http://www.inblox.in",
-  ];
+// Handle preflight requests for all routes
+app.options("*", cors(corsOptions));
 
-  if (
-    allowedOrigins.includes(origin) ||
-    (origin && /\.vercel\.app$/.test(origin))
-  ) {
-    res.header("Access-Control-Allow-Origin", origin);
-  } else if (!origin) {
-    // Allow requests with no origin (Brave browser, mobile apps, etc.)
-    res.header("Access-Control-Allow-Origin", "*");
-    console.log(`⚠️  No origin header - setting Access-Control-Allow-Origin: *`);
-  }
-
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin,X-Requested-With,Content-Type,Accept,Authorization"
-  );
-
-  // Log CORS info for debugging
-  console.log(`CORS: Request from origin: ${origin}`);
-
-  next();
-});
+// Cookie parser middleware (needed for HttpOnly cookies)
+app.use(cookieParser());
 
 app.use(express.json());
 

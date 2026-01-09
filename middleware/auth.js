@@ -1,8 +1,8 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+require('dotenv').config();
 
-const JWT_SECRET =
-    process.env.JWT_SECRET || "your-secret-key-change-this-in-production";
+
 
 // Middleware to verify JWT token
 const authenticateToken = async (req, res, next) => {
@@ -14,7 +14,7 @@ const authenticateToken = async (req, res, next) => {
             return res.status(401).json({ error: "Access token required" });
         }
 
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(decoded.userId);
 
         if (!user) {
@@ -41,7 +41,7 @@ const optionalAuth = async (req, res, next) => {
         const token = authHeader && authHeader.split(" ")[1];
 
         if (token) {
-            const decoded = jwt.verify(token, JWT_SECRET);
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
             const user = await User.findById(decoded.userId);
             if (user) {
                 req.user = user;
@@ -57,5 +57,5 @@ const optionalAuth = async (req, res, next) => {
 module.exports = {
     authenticateToken,
     optionalAuth,
-    JWT_SECRET,
+    JWT_SECRET:process.env.JWT_SECRET,
 };
