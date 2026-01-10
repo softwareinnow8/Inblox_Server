@@ -25,7 +25,10 @@ import connectDB from "./db.js";
 
 const execAsync = promisify(exec);
 const app = express();
-const PORT = 3001; // Force backend to use port 3001
+const PORT = process.env.PORT || 8080; // AWS-friendly default
+
+// Trust proxy headers (required behind Caddy/ALB to detect HTTPS/IP correctly)
+app.set("trust proxy", true);
 
 // Trust first proxy (Render/Nginx/Cloudflare) so req.ip is correct for rate limiting.
 app.set("trust proxy", 1);
@@ -126,6 +129,7 @@ const corsOptions = {
       "https://www.inblox.in",
       "http://inblox.in",
       "http://www.inblox.in",
+      "https://backend.inblox.in"
     ];
 
     // Check if origin is allowed (exact match or pattern)
@@ -145,7 +149,7 @@ const corsOptions = {
   },
   credentials: true, // ✅ REQUIRED for HttpOnly cookies
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   exposedHeaders: ["Content-Length"],
   optionsSuccessStatus: 200,
   preflightContinue: false,
@@ -154,8 +158,8 @@ const corsOptions = {
 // Apply CORS middleware (single, clean configuration)
 app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes
-app.options("*", cors(corsOptions));
+  // Handle preflight requests for all routes
+  app.options("*", cors(corsOptions));
 
 // Cookie parser middleware (needed for HttpOnly cookies)
 app.use(cookieParser());
@@ -270,18 +274,6 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
-    
-    // Verify Arduino CLI exists
-    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
-      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
-      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}. Please check Render build logs.`);
-    }
-
-    // Set config file path for Render (optional)
-    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
-      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
-      : "";
-    
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Libraries are now installed on-demand by dependency manager
@@ -393,18 +385,6 @@ app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
-    
-    // Verify Arduino CLI exists
-    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
-      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
-      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}`);
-    }
-
-    // Set config file path
-    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
-      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
-      : "";
-    
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Try each board type until one works (auto-detection for Nano bootloaders)
@@ -640,39 +620,11 @@ app.post("/api/compile-esp32", compileLimiter, async (req, res) => {
     // Detect OS and use appropriate Arduino CLI path
     const isWindows = os.platform() === "win32";
     
-    // Try to find arduino-cli in PATH first
-    let arduinoCliPath = "arduino-cli";
-    
-    // If not in PATH, try common locations
-    const possiblePaths = isWindows 
-      ? ["C:\\arduino-cli\\arduino-cli.exe"]
-      : [
-          "/opt/render/project/src/arduino-cli/arduino-cli",
-          "/usr/local/bin/arduino-cli",
-          "/usr/bin/arduino-cli"
-        ];
-    
-    for (const testPath of possiblePaths) {
-      if (fs.existsSync(testPath)) {
-        arduinoCliPath = testPath;
-        break;
-      }
-    }
+    const arduinoCliPath = resolveArduinoCliPath();
+    const configFile = resolveArduinoConfigFlag();
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
-    
-    // Verify Arduino CLI exists
-    if (!fs.existsSync(arduinoCliPath) && arduinoCliPath !== "arduino-cli") {
-      console.error(`❌ Arduino CLI not found at: ${arduinoCliPath}`);
-      throw new Error(`Arduino CLI not found at: ${arduinoCliPath}. Please check Render build logs.`);
-    }
-
-    // Set config file path for Render (optional)
-    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
-      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
-      : "";
-    
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Get user library path
@@ -903,10 +855,9 @@ const startServer = async () => {
     // Connect to MongoDB using centralized connection
     await connectDB();
     
-    app.listen(PORT, () => {
-      console.log(`🚀 Backend server running on port ${PORT}`);
-      console.log(`📡 API endpoints ready at http://localhost:${PORT}`);
-    });
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`🚀 Backend server running on port ${PORT}`);
+      });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
     process.exit(1);

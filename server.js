@@ -199,19 +199,28 @@ app.post("/api/compile", async (req, res) => {
     console.log(`📝 Compiling sketch for ${board}...`);
     
     // Determine arduino-cli path based on environment
-    const isProduction = process.env.NODE_ENV === 'production';
-    const arduinoCliPath = isProduction 
-      ? '/opt/render/project/src/arduino-cli/arduino-cli'
-      : 'arduino-cli';
-    
-    const configFile = isProduction 
-      ? '/opt/render/project/src/.arduino15/arduino-cli.yaml'
-      : '';
-    
+    const cliCandidates = [
+      process.env.ARDUINO_CLI_PATH,
+      '/opt/arduino-cli/arduino-cli', // common on AWS/App Runner
+      '/usr/local/bin/arduino-cli',
+      '/usr/bin/arduino-cli',
+      'arduino-cli'
+    ].filter(Boolean);
+
+    let arduinoCliPath = cliCandidates.find(p => fs.existsSync(p)) || 'arduino-cli';
+
+    const configCandidates = [
+      process.env.ARDUINO_CONFIG_FILE,
+      '/opt/.arduino15/arduino-cli.yaml',
+      path.join(require('os').homedir(), '.arduino15', 'arduino-cli.yaml')
+    ].filter(Boolean);
+
+    const configFile = configCandidates.find(p => fs.existsSync(p)) || '';
     const configFlag = configFile ? `--config-file "${configFile}"` : '';
     
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
-    console.log(`⚙️ Environment: ${isProduction ? 'Production (Render)' : 'Development'}`);
+    console.log(`⚙️ Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`⚙️ Config file: ${configFile || 'default'}`);
     
     // Compile with arduino-cli
     const compileCommand = `"${arduinoCliPath}" compile --fqbn ${board} ${configFlag} "${sketchPath}" --output-dir "${tempDir}"`;

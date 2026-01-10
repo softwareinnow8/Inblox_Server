@@ -41,10 +41,10 @@ class ArduinoDependencyManager {
             this.configFile = process.env.ARDUINO_CONFIG_FILE || path.join(os.homedir(), '.arduino15', 'arduino-cli.yaml');
             this.persistentDisk = path.join(os.homedir(), '.arduino15');
         } else {
-            // Linux/Render paths
-            this.cliPath = process.env.ARDUINO_CLI_PATH || '/opt/render/project/src/arduino-cli/arduino-cli';
-            this.configFile = process.env.ARDUINO_CONFIG_FILE || '/opt/render/project/src/.arduino15/arduino-cli.yaml';
-            this.persistentDisk = '/opt/render/project/src/.arduino15';
+            // Linux paths (AWS/ECS/App Runner friendly)
+            this.cliPath = process.env.ARDUINO_CLI_PATH || '/opt/arduino-cli/arduino-cli';
+            this.configFile = process.env.ARDUINO_CONFIG_FILE || '/opt/.arduino15/arduino-cli.yaml';
+            this.persistentDisk = '/opt/.arduino15';
         }
         
         console.log('🔧 Arduino Dependency Manager initialized');
