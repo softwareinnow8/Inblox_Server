@@ -5,11 +5,11 @@
  * Cores persist across restarts on /opt/render/project/src/.arduino15
  */
 
-const { exec } = require('child_process');
-const util = require('util');
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
+import { exec } from 'child_process';
+import util from 'util';
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
 const execPromise = util.promisify(exec);
 
 class ArduinoDependencyManager {
@@ -32,7 +32,7 @@ class ArduinoDependencyManager {
             
             this.cliPath = process.env.ARDUINO_CLI_PATH || 'arduino-cli'; // Default to PATH
             for (const testPath of possiblePaths) {
-                if (require('fs').existsSync(testPath)) {
+                if (fs.existsSync(testPath)) {
                     this.cliPath = testPath;
                     break;
                 }
@@ -369,4 +369,4 @@ class ArduinoDependencyManager {
 }
 
 // Export singleton instance
-module.exports = new ArduinoDependencyManager();
+export default new ArduinoDependencyManager();

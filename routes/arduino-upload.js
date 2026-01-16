@@ -1,11 +1,12 @@
-const express = require('express');
+import express from 'express';
+import { SerialPort } from 'serialport';
+import { promises as fs } from 'fs';
+import path from 'path';
+import os from 'os';
+import { exec } from 'child_process';
+import util from 'util';
+
 const router = express.Router();
-const { SerialPort } = require('serialport');
-const fs = require('fs').promises;
-const path = require('path');
-const os = require('os');
-const { exec } = require('child_process');
-const util = require('util');
 const execPromise = util.promisify(exec);
 
 // Board configurations
@@ -114,8 +115,7 @@ router.post('/upload', async (req, res) => {
             : ['/usr/local/bin/arduino-cli', '/usr/bin/arduino-cli'];
         
         for (const testPath of possiblePaths) {
-            const fsSync = require('fs');
-            if (fsSync.existsSync(testPath)) {
+            if (fs.existsSync(testPath)) {
                 arduinoCliPath = testPath;
                 break;
             }
@@ -146,4 +146,4 @@ router.post('/upload', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

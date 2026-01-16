@@ -1,29 +1,35 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const cookieParser = require("cookie-parser"); // ✅ ADDED for secure cookies
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const { promisify } = require("util");
-require("dotenv").config();
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import cookieParser from "cookie-parser"; // ✅ ADDED for secure cookies
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { promisify } from "util";
+import dotenv from "dotenv";
+dotenv.config();
+
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Import centralized database connection
-const connectDB = require("./db");
+import connectDB from "./db.js";
 
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
 
 // Import routes
-const authRoutes = require("./routes/auth");
-const projectRoutes = require("./routes/projects");
-const arduinoUploadRouter = require("./routes/arduino-upload");
+import authRoutes from "./routes/auth.js";
+import projectRoutes from "./routes/projects.js";
+import arduinoUploadRouter from "./routes/arduino-upload.js";
 
 // Import Arduino Dependency Manager for on-demand installation
-const dependencyManager = require("./arduino-dependency-manager");
+import dependencyManager from "./arduino-dependency-manager.js";
 
 // User model
 const userSchema = new mongoose.Schema({
@@ -171,7 +177,6 @@ app.post("/api/compile", async (req, res) => {
     console.log(`✅ Dependencies ready`);
 
     // Detect OS and use appropriate Arduino CLI path
-    const os = require("os");
     const isWindows = os.platform() === "win32";
     
     // Try to find arduino-cli in PATH first
@@ -295,7 +300,6 @@ app.post("/api/compile-and-upload", async (req, res) => {
     console.log(`✅ Dependencies ready`);
 
     // Detect OS and use appropriate Arduino CLI path
-    const os = require("os");
     const isWindows = os.platform() === "win32";
     
     let arduinoCliPath = "arduino-cli";
@@ -429,7 +433,6 @@ app.get("/api/ports", async (req, res) => {
     console.log('📋 Listing available serial ports...');
     
     // Detect OS and use appropriate Arduino CLI path
-    const os = require("os");
     const isWindows = os.platform() === "win32";
     
     let arduinoCliPath = "arduino-cli";
@@ -565,7 +568,6 @@ app.post("/api/compile-esp32", async (req, res) => {
     console.log(`✅ Dependencies ready`);
 
     // Detect OS and use appropriate Arduino CLI path
-    const os = require("os");
     const isWindows = os.platform() === "win32";
     
     // Try to find arduino-cli in PATH first
@@ -707,6 +709,17 @@ function parseIntelHex(hexString) {
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
+
+// Compatibility route: handle email links like /verify-email?token=...
+// Redirect to the API route /api/auth/verify-email/:token
+app.get('/verify-email', (req, res) => {
+  const token = req.query.token;
+  if (!token) {
+    return res.status(400).json({ error: 'Verification token is required', path: req.originalUrl });
+  }
+  // Redirect preserves simple UX for existing emails
+  return res.redirect(`/api/auth/verify-email/${token}`);
+});
 
 // Root endpoint - quick response for health checks
 app.get("/", (req, res) => {

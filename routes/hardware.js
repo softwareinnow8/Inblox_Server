@@ -1,5 +1,6 @@
-const express = require('express');
-const { SerialPort } = require('serialport');
+import express from 'express';
+import { SerialPort } from 'serialport';
+
 const router = express.Router();
 
 // Get available serial ports
@@ -100,4 +101,4 @@ router.post('/test-connection', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

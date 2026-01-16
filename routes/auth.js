@@ -1,10 +1,13 @@
-const express = require("express");
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-const { authenticateToken, JWT_SECRET } = require("../middleware/auth");
-const { OAuth2Client } = require("google-auth-library");
-const axios = require("axios");
-require('dotenv').config();
+import express from "express";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import User from "../models/User.js";
+import { authenticateToken, JWT_SECRET } from "../middleware/auth.js";
+import { OAuth2Client } from "google-auth-library";
+import axios from "axios";
+import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfirmation } from "../services/emailService.js";
+import dotenv from 'dotenv';
+dotenv.config();
 
 const router = express.Router();
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -53,6 +56,10 @@ router.post("/signup", async (req, res) => {
       }
     }
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     // Create new user
     const user = new User({
       username,
@@ -60,11 +67,24 @@ router.post("/signup", async (req, res) => {
       password,
       firstName,
       lastName,
+      authProvider: 'local',
+      isEmailVerified: false,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires,
     });
 
     await user.save();
 
-    // Generate token
+    // Send verification email
+    try {
+      await sendVerificationEmail(user.email, verificationToken, user.firstName);
+      console.log(`Verification email sent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Don't block user creation if email fails
+    }
+
+    // Generate token (but user still needs to verify email)
     const token = generateToken(user._id);
 
     // Set HttpOnly cookie
@@ -76,7 +96,8 @@ router.post("/signup", async (req, res) => {
     });
 
     res.status(201).json({
-      message: "User created successfully",
+      message: "User created successfully. Please check your email to verify your account.",
+      requiresEmailVerification: true,
       token, // Still return token for backward compatibility
       user: {
         id: user._id,
@@ -84,6 +105,7 @@ router.post("/signup", async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        isEmailVerified: user.isEmailVerified,
       },
     });
   } catch (error) {
@@ -114,6 +136,15 @@ router.post("/signin", async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    // Check if user signed up with local auth (not Google)
+    if (user.authProvider === 'local' && !user.isEmailVerified) {
+      return res.status(403).json({ 
+        error: "Please verify your email before signing in",
+        requiresEmailVerification: true,
+        email: user.email
+      });
     }
 
     // Check password
@@ -412,4 +443,252 @@ router.get("/google/callback", async (req, res) => {
   }
 });
 
-module.exports = router;
+// ================================
+// Email Verification Routes
+// ================================
+
+// Verify email with token and redirect to frontend with session cookie
+router.get("/verify-email/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.redirect(`${FRONTEND_URL}/#/?email_verification=missing_token`);
+    }
+
+    // Find user with valid token
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.redirect(`${FRONTEND_URL}/#/?email_verification=invalid_or_expired`);
+    }
+
+    // Verify the user
+    user.isEmailVerified = true;
+    user.isVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationExpires = null;
+    await user.save();
+
+    // Create session (same behavior as Google OAuth)
+    const jwtToken = generateToken(user._id);
+    res.cookie("auth_token", jwtToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    // Redirect the user to the frontend app
+    return res.redirect(`${FRONTEND_URL}/#/?email_verification=success`);
+  } catch (error) {
+    console.error("Email verification error:", error);
+    return res.redirect(`${FRONTEND_URL}/#/?email_verification=server_error`);
+  }
+});
+
+// Resend verification email
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      // Don't reveal if user exists or not for security
+      return res.json({ 
+        message: "If an account exists with this email, a verification link has been sent."
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({ error: "Email is already verified" });
+    }
+
+    if (user.authProvider !== 'local') {
+      return res.status(400).json({ 
+        error: "This account uses social login and doesn't require email verification"
+      });
+    }
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    user.emailVerificationToken = verificationToken;
+    user.emailVerificationExpires = verificationExpires;
+    await user.save();
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(user.email, verificationToken, user.firstName);
+      console.log(`Verification email resent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to resend verification email:', emailError);
+      return res.status(500).json({ error: "Failed to send verification email" });
+    }
+
+    res.json({ 
+      message: "Verification email sent successfully. Please check your inbox.",
+      success: true
+    });
+  } catch (error) {
+    console.error("Resend verification error:", error);
+    res.status(500).json({ error: "Server error while resending verification email" });
+  }
+});
+
+// ================================
+// Password Reset Routes
+// ================================
+
+// Request password reset
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      // Don't reveal if user exists or not for security
+      return res.json({ 
+        message: "If an account exists with this email, a password reset link has been sent."
+      });
+    }
+
+    // Check if user uses local authentication
+    if (user.authProvider !== 'local' && !user.password) {
+      return res.status(400).json({ 
+        error: "This account uses social login. Please sign in with your social account."
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    user.passwordResetToken = resetToken;
+    user.passwordResetExpires = resetExpires;
+    await user.save();
+
+    // Send password reset email
+    try {
+      await sendPasswordResetEmail(user.email, resetToken, user.firstName);
+      console.log(`Password reset email sent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send password reset email:', emailError);
+      return res.status(500).json({ error: "Failed to send password reset email" });
+    }
+
+    res.json({ 
+      message: "If an account exists with this email, a password reset link has been sent.",
+      success: true
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Server error during password reset request" });
+  }
+});
+
+// Verify reset token (optional - for frontend to check if token is valid)
+router.get("/reset-password/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({ error: "Reset token is required" });
+    }
+
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ 
+        error: "Invalid or expired reset token",
+        expired: true
+      });
+    }
+
+    res.json({
+      message: "Valid reset token",
+      valid: true,
+      email: user.email
+    });
+  } catch (error) {
+    console.error("Verify reset token error:", error);
+    res.status(500).json({ error: "Server error while verifying reset token" });
+  }
+});
+
+// Reset password with token
+router.post("/reset-password/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "Reset token is required" });
+    }
+
+    if (!password) {
+      return res.status(400).json({ error: "New password is required" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        error: "Password must be at least 6 characters long" 
+      });
+    }
+
+    // Find user with valid token
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ 
+        error: "Invalid or expired reset token",
+        expired: true
+      });
+    }
+
+    // Update password
+    user.password = password; // Will be hashed by pre-save hook
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
+
+    // Send confirmation email
+    try {
+      await sendPasswordChangeConfirmation(user.email, user.firstName);
+      console.log(`Password change confirmation sent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send password change confirmation:', emailError);
+      // Don't block the password reset if confirmation email fails
+    }
+
+    res.json({
+      message: "Password reset successfully. You can now sign in with your new password.",
+      success: true
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: "Server error during password reset" });
+  }
+});
+
+export default router;

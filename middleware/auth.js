@@ -1,6 +1,7 @@
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-require('dotenv').config();
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+import dotenv from 'dotenv';
+dotenv.config();
 
 
 
@@ -54,8 +55,5 @@ const optionalAuth = async (req, res, next) => {
     }
 };
 
-module.exports = {
-    authenticateToken,
-    optionalAuth,
-    JWT_SECRET:process.env.JWT_SECRET,
-};
+export { authenticateToken, optionalAuth };
+export const JWT_SECRET = process.env.JWT_SECRET;

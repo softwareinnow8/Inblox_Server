@@ -1,22 +1,28 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const cookieParser = require("cookie-parser");
-const path = require("path");
-const http = require("http");
-const { Server } = require("socket.io");
-const { exec } = require("child_process");
-const fs = require("fs");
-const { promisify } = require("util");
-require("dotenv").config();
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
+import http from "http";
+import { Server } from "socket.io";
+import { exec } from "child_process";
+import fs from "fs";
+import { promisify } from "util";
+import dotenv from "dotenv";
+dotenv.config();
+
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Import centralized database connection
-const connectDB = require("./db");
+import connectDB from "./db.js";
 
 const execAsync = promisify(exec);
-const authRoutes = require("./routes/auth");
-const projectRoutes = require("./routes/projects");
-const hardwareRoutes = require("./routes/hardware");
+import authRoutes from "./routes/auth.js";
+import projectRoutes from "./routes/projects.js";
+import hardwareRoutes from "./routes/hardware.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -76,7 +82,7 @@ const io = new Server(server, {
 });
 
 // Hardware communication via Socket.IO
-const { SerialPort } = require("serialport");
+import { SerialPort } from "serialport";
 let activePort = null;
 
 io.on("connection", (socket) => {
@@ -297,6 +303,6 @@ const startServer = async () => {
 };
 
 // Export for Vercel
-module.exports = handler;
-module.exports.app = app;
-module.exports.startServer = startServer;
+export { startServer };
+export { app };
+export { handler };

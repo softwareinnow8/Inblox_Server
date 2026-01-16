@@ -99,8 +99,10 @@
 // module.exports = mongoose.model("User", userSchema);
 
 
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
+// import mongoose from "mongoose";
+import mongoose from "mongoose";
+// import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
     {
@@ -168,6 +170,22 @@ const userSchema = new mongoose.Schema(
             type: Boolean,
             default: false, // Alias for isVerified, more explicit naming
         },
+        emailVerificationToken: {
+            type: String,
+            default: null,
+        },
+        emailVerificationExpires: {
+            type: Date,
+            default: null,
+        },
+        passwordResetToken: {
+            type: String,
+            default: null,
+        },
+        passwordResetExpires: {
+            type: Date,
+            default: null,
+        },
         lastLogin: {
             type: Date,
             default: Date.now,
@@ -222,4 +240,4 @@ userSchema.set('toObject', {
     virtuals: true
 });
 
-module.exports = mongoose.model("User", userSchema);
+export default mongoose.model("User", userSchema);

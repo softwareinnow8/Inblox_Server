@@ -1,5 +1,6 @@
-const SerialPort = require('serialport');
-const socketIO = require('socket.io');
+import SerialPort from 'serialport';
+import socketIO from 'socket.io';
+
 
 // This service provides hardware communication through socketIO
 
@@ -48,5 +49,5 @@ class HardwareService {
     }
 }
 
-module.exports = HardwareService;
+export default HardwareService;
 

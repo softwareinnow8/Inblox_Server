@@ -1,7 +1,8 @@
-const express = require("express");
+import express from "express";
+import Project from "../models/Project.js";
+import { authenticateToken, optionalAuth } from "../middleware/auth.js";
+
 const router = express.Router();
-const Project = require("../models/Project");
-const { authenticateToken, optionalAuth } = require("../middleware/auth");
 
 // Get all public projects (no auth required)
 router.get("/", async (req, res) => {
@@ -261,4 +262,4 @@ router.post("/:id/remix", authenticateToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
