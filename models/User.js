@@ -127,7 +127,7 @@ const userSchema = new mongoose.Schema(
         },
         password: {
             type: String,
-            minlength: 6,
+            // Password validation is done in the route with validatePassword()
             default: null, // Optional for OAuth users
         },
         firstName: {
