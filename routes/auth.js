@@ -97,9 +97,10 @@ if (passwordError) {
     });
 
     res.status(201).json({
-      message: "User created successfully. Please check your email to verify your account.",
+      message: "Account created! Please check your email to verify your account before signing in.",
       requiresEmailVerification: true,
-      token, // Still return token for backward compatibility
+      email: user.email,
+      // ❌ Don't return token - user must verify email first
       user: {
         id: user._id,
         username: user.username,
@@ -275,6 +276,18 @@ router.get("/me", async (req, res) => {
       return res.status(401).json({ user: null, isAuthenticated: false });
     }
 
+    // ✅ Check if user has verified their email (for local auth)
+    if (user.authProvider === 'local' && !user.isEmailVerified) {
+      console.log(`Attempted to authenticate unverified user: ${user.email}`);
+      res.clearCookie("auth_token"); // Clear any existing invalid cookie
+      return res.status(403).json({ 
+        user: null, 
+        isAuthenticated: false,
+        requiresEmailVerification: true,
+        message: "Please verify your email before signing in"
+      });
+    }
+
     res.json({
       user: {
         id: user._id,
@@ -285,7 +298,8 @@ router.get("/me", async (req, res) => {
         avatar: user.avatar,
         authProvider: user.authProvider,
         createdAt: user.createdAt,
-        lastLogin: user.lastLogin
+        lastLogin: user.lastLogin,
+        isEmailVerified: user.isEmailVerified
       },
       isAuthenticated: true
     });
@@ -467,12 +481,20 @@ router.get("/verify-email/:token", async (req, res) => {
       return res.redirect(`${FRONTEND_URL}/#/?email_verification=invalid_or_expired`);
     }
 
+    // Check if email is already verified - prevent double verification
+    if (user.isEmailVerified) {
+      console.log(`Attempted to verify already verified email: ${user.email}`);
+      return res.redirect(`${FRONTEND_URL}/#/?email_verification=already_verified`);
+    }
+
     // Verify the user
     user.isEmailVerified = true;
     user.isVerified = true;
     user.emailVerificationToken = null;
     user.emailVerificationExpires = null;
     await user.save();
+
+    console.log(`Email verified successfully for user: ${user.email}`);
 
     // Create session (same behavior as Google OAuth)
     const jwtToken = generateToken(user._id);
@@ -483,7 +505,7 @@ router.get("/verify-email/:token", async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    // Redirect the user to the frontend app
+    // Redirect the user to the frontend app with success status
     return res.redirect(`${FRONTEND_URL}/#/?email_verification=success`);
   } catch (error) {
     console.error("Email verification error:", error);
