@@ -7,6 +7,7 @@ import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfirmation } from "../services/emailService.js";
 import dotenv from 'dotenv';
+import validatePassword from "../utils/passwordValidator.js";
 dotenv.config();
 
 const router = express.Router();
@@ -30,11 +31,11 @@ router.post("/signup", async (req, res) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ error: "Password must be at least 6 characters long" });
-    }
+    const passwordError = validatePassword(password);
+if (passwordError) {
+  return res.status(400).json({ error: passwordError });
+}
+
 
     if (username.length < 3 || username.length > 20) {
       return res.status(400).json({
@@ -647,11 +648,11 @@ router.post("/reset-password/:token", async (req, res) => {
       return res.status(400).json({ error: "New password is required" });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        error: "Password must be at least 6 characters long" 
-      });
-    }
+    const passwordError = validatePassword(password);
+if (passwordError) {
+  return res.status(400).json({ error: passwordError });
+}
+
 
     // Find user with valid token
     const user = await User.findOne({
