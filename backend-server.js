@@ -1,7 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import cookieParser from "cookie-parser"; // ✅ ADDED for secure cookies
+import cookieParser from "cookie-parser"; 
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { exec } from "child_process";

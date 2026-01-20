@@ -1,0 +1,287 @@
+{
+  "info": {
+    "_postman_id": "inblox-projects-save",
+    "name": "Inblox Project Save API",
+    "description": "API endpoints for saving and retrieving Inblox projects",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Test@1234\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/auth/register",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"Test@1234\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/auth/login",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects - Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"My Cat Animation Project\",\n  \"description\": \"A fun project where a cat walks across the stage\",\n  \"projectData\": {\n    \"targets\": [\n      {\n        \"isStage\": true,\n        \"name\": \"Stage\",\n        \"variables\": {},\n        \"lists\": {},\n        \"broadcasts\": {},\n        \"blocks\": {},\n        \"comments\": {},\n        \"currentCostume\": 0,\n        \"costumes\": [\n          {\n            \"assetId\": \"cd21514d0531fdffb22204e0ec5646dd\",\n            \"name\": \"backdrop1\",\n            \"md5ext\": \"cd21514d0531fdffb22204e0ec5646dd.svg\",\n            \"dataFormat\": \"svg\",\n            \"rotationCenterX\": 240,\n            \"rotationCenterY\": 180\n          }\n        ],\n        \"sounds\": [],\n        \"volume\": 100,\n        \"layerOrder\": [0],\n        \"tempo\": 60,\n        \"videoTransparency\": 50,\n        \"videoState\": \"on\",\n        \"textToSpeechLanguage\": null\n      }\n    ],\n    \"monitors\": [],\n    \"extensionObjects\": {},\n    \"extensions\": [],\n    \"meta\": {\n      \"semver\": \"3.0.0\",\n      \"vm\": \"0.2.0\",\n      \"agent\": \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\"\n    }\n  },\n  \"thumbnail\": null,\n  \"isPublic\": false,\n  \"tags\": [\"cat\", \"animation\", \"test\"]\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/projects",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects"]
+        },
+        "description": "Create a new project with Scratch VM data"
+      }
+    },
+    {
+      "name": "Projects - List My Projects",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/api/projects/my-projects?page=1&limit=20",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "my-projects"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "description": "Get list of all projects created by current user"
+      }
+    },
+    {
+      "name": "Projects - Get Project by ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/api/projects/{{project_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "{{project_id}}"]
+        },
+        "description": "Get full project data including projectData (Scratch VM JSON)"
+      }
+    },
+    {
+      "name": "Projects - Update Project",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Updated Cat Animation Project\",\n  \"description\": \"Updated description - now with multiple cats!\",\n  \"isPublic\": true,\n  \"tags\": [\"cat\", \"animation\", \"updated\"]\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/projects/{{project_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "{{project_id}}"]
+        },
+        "description": "Update an existing project (only owner can update)"
+      }
+    },
+    {
+      "name": "Projects - Update Project Data (Full Save)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"My Cat Animation Project\",\n  \"description\": \"A fun project where a cat walks across the stage\",\n  \"projectData\": {\n    \"targets\": [\n      {\n        \"isStage\": true,\n        \"name\": \"Stage\",\n        \"variables\": {},\n        \"lists\": {},\n        \"broadcasts\": {},\n        \"blocks\": {},\n        \"comments\": {},\n        \"currentCostume\": 0,\n        \"costumes\": [\n          {\n            \"assetId\": \"cd21514d0531fdffb22204e0ec5646dd\",\n            \"name\": \"backdrop1\",\n            \"md5ext\": \"cd21514d0531fdffb22204e0ec5646dd.svg\",\n            \"dataFormat\": \"svg\",\n            \"rotationCenterX\": 240,\n            \"rotationCenterY\": 180\n          }\n        ],\n        \"sounds\": [],\n        \"volume\": 100,\n        \"layerOrder\": [0],\n        \"tempo\": 60,\n        \"videoTransparency\": 50,\n        \"videoState\": \"on\",\n        \"textToSpeechLanguage\": null\n      }\n    ],\n    \"monitors\": [],\n    \"extensionObjects\": {},\n    \"extensions\": [],\n    \"meta\": {\n      \"semver\": \"3.0.0\",\n      \"vm\": \"0.2.0\",\n      \"agent\": \"Mozilla/5.0\"\n    }\n  },\n  \"thumbnail\": null,\n  \"isPublic\": false,\n  \"tags\": [\"cat\", \"animation\", \"test\"]\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/projects/{{project_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "{{project_id}}"]
+        },
+        "description": "Update project with new Scratch VM data (use when saving project changes)"
+      }
+    },
+    {
+      "name": "Projects - Delete Project",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/api/projects/{{project_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "{{project_id}}"]
+        },
+        "description": "Delete a project (only owner can delete)"
+      }
+    },
+    {
+      "name": "Projects - List All Public Projects",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/projects?page=1&limit=20",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "description": "Get list of all public projects (no auth required)"
+      }
+    },
+    {
+      "name": "Projects - Remix Project",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"My Remix of Cat Animation\",\n  \"isRemix\": true\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/projects/{{project_id}}/remix",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "projects", "{{project_id}}", "remix"]
+        },
+        "description": "Create a remix/copy of an existing project"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "jwt_token",
+      "value": "YOUR_JWT_TOKEN_HERE",
+      "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "YOUR_PROJECT_ID_HERE",
+      "type": "string"
+    }
+  ]
+}
