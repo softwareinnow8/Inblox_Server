@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User.js";
+import Admin from "../models/Admin.js";
 import { authenticateToken, JWT_SECRET } from "../middleware/auth.js";
 import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
@@ -16,9 +17,26 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || "http://localhost:3000/auth/google/callback";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
+// Helper function to check if user is admin
+const checkAdminStatus = async (userId) => {
+  const adminRecord = await Admin.findOne({ userId, isActive: true });
+  return {
+    isAdmin: !!adminRecord,
+    adminRole: adminRecord?.role || null,
+    adminPermissions: adminRecord?.permissions || null,
+  };
+};
+
 // Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "7d" });
+const generateToken = (userId, isAdmin = false) => {
+  return jwt.sign(
+    { 
+      userId,
+      isAdmin 
+    }, 
+    JWT_SECRET, 
+    { expiresIn: "7d" }
+  );
 };
 
 // Sign up route
@@ -85,8 +103,11 @@ if (passwordError) {
       // Don't block user creation if email fails
     }
 
+    // Check admin status (should be false for new users)
+    const adminStatus = await checkAdminStatus(user._id);
+
     // Generate token (but user still needs to verify email)
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, adminStatus.isAdmin);
 
     // Set HttpOnly cookie
     res.cookie("auth_token", token, {
@@ -159,8 +180,11 @@ router.post("/signin", async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
+    // Check admin status from Admin collection
+    const adminStatus = await checkAdminStatus(user._id);
+
     // Generate token
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, adminStatus.isAdmin);
 
     // Set HttpOnly cookie
     res.cookie("auth_token", token, {
@@ -179,6 +203,8 @@ router.post("/signin", async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        isAdmin: adminStatus.isAdmin,
+        adminRole: adminStatus.adminRole,
       },
     });
   } catch (error) {
@@ -288,6 +314,9 @@ router.get("/me", async (req, res) => {
       });
     }
 
+    // Check admin status from Admin collection
+    const adminStatus = await checkAdminStatus(user._id);
+
     res.json({
       user: {
         id: user._id,
@@ -299,7 +328,10 @@ router.get("/me", async (req, res) => {
         authProvider: user.authProvider,
         createdAt: user.createdAt,
         lastLogin: user.lastLogin,
-        isEmailVerified: user.isEmailVerified
+        isEmailVerified: user.isEmailVerified,
+        isAdmin: adminStatus.isAdmin,
+        adminRole: adminStatus.adminRole,
+        adminPermissions: adminStatus.adminPermissions
       },
       isAuthenticated: true
     });
@@ -439,8 +471,11 @@ router.get("/google/callback", async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
+    // Check admin status from Admin collection
+    const adminStatus = await checkAdminStatus(user._id);
+
     // Generate JWT token
-    const jwtToken = generateToken(user._id);
+    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
 
     // ✅ Set HttpOnly cookie (SECURE)
     res.cookie("auth_token", jwtToken, {
@@ -496,8 +531,11 @@ router.get("/verify-email/:token", async (req, res) => {
 
     console.log(`Email verified successfully for user: ${user.email}`);
 
+    // Check admin status from Admin collection
+    const adminStatus = await checkAdminStatus(user._id);
+
     // Create session (same behavior as Google OAuth)
-    const jwtToken = generateToken(user._id);
+    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
     res.cookie("auth_token", jwtToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
