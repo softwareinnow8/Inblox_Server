@@ -23,6 +23,8 @@ const execAsync = promisify(exec);
 import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
 import hardwareRoutes from "./routes/hardware.js";
+import adminRoutes from "./routes/admin.js";
+import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -83,6 +85,7 @@ const io = new Server(server, {
 
 // Hardware communication via Socket.IO
 import { SerialPort } from "serialport";
+import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 let activePort = null;
 
 io.on("connection", (socket) => {
@@ -265,6 +268,7 @@ function parseIntelHex(hexString) {
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/hardware", hardwareRoutes);
+app.use("/api/admin", authenticateAdmin, adminRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {

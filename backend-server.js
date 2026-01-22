@@ -27,6 +27,8 @@ const PORT = 3001; // Force backend to use port 3001
 import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
 import arduinoUploadRouter from "./routes/arduino-upload.js";
+import adminRoutes from "./routes/admin.js";
+import { authenticateAdmin } from "./middleware/authAdmin.js";
 
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
@@ -709,6 +711,7 @@ function parseIntelHex(hexString) {
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
+app.use("/api/admin", authenticateAdmin, adminRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token
