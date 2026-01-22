@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { exec } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
