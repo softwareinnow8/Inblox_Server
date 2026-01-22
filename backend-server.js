@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
 import dotenv from "dotenv";
