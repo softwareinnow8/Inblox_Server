@@ -108,6 +108,12 @@ if (passwordError) {
       console.error('Failed to send verification email:', emailError);
       // Don't block user creation if email fails
     }
+    res.clearCookie("auth_token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax"
+    });
+
 
     res.status(201).json({
       message: "Account created! Please check your email to verify your account before signing in.",
