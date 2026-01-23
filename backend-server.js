@@ -129,7 +129,8 @@ const corsOptions = {
       "https://www.inblox.in",
       "http://inblox.in",
       "http://www.inblox.in",
-      "https://backend.inblox.in"
+      "https://backend.inblox.in",
+      "https://staging-backend.inblox.in"
     ];
 
     // Check if origin is allowed (exact match or pattern)

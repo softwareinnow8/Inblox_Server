@@ -10,6 +10,7 @@ import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfir
 // import { sendVerificationEmail,sendEmail } from "../services/emailService.js";
 import dotenv from 'dotenv';
 import validatePassword from "../utils/passwordValidator.js";
+
 dotenv.config();
 
 const router = express.Router();
@@ -19,8 +20,8 @@ router.use((req, res, next) => {
 });
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || "http://localhost:3000/auth/google/callback";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL ;
 
 // Helper function to check if user is admin
 const checkAdminStatus = async (userId) => {
@@ -108,20 +109,6 @@ if (passwordError) {
       // Don't block user creation if email fails
     }
 
-    // Check admin status (should be false for new users)
-    const adminStatus = await checkAdminStatus(user._id);
-
-    // Generate token (but user still needs to verify email)
-    const token = generateToken(user._id, adminStatus.isAdmin);
-
-    // Set HttpOnly cookie
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
     res.status(201).json({
       message: "Account created! Please check your email to verify your account before signing in.",
       requiresEmailVerification: true,
@@ -166,14 +153,10 @@ router.post("/signin", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    if (user.isDeleted) {
-      return res.status(403).json({ error: "Account has been deleted" });
-    }
-
-    // Check if user signed up with local auth (not Google)
-    if (user.authProvider === 'local' && !user.isEmailVerified) {
-      return res.status(403).json({ 
-        error: "Please verify your email before signing in",
+    // Block login until email is verified
+    if (user.authProvider === "local" && !user.isEmailVerified) {
+      return res.status(403).json({
+        message: "Please verify your email before logging in",
         requiresEmailVerification: true,
         email: user.email
       });
