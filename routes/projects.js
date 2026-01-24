@@ -66,12 +66,15 @@ router.get("/my-projects", authenticateToken, async (req, res) => {
 });
 
 // Get a specific project by ID
-router.get("/:id", async (req, res) => {
+router.get("/:id",authenticateToken, async (req, res) => {
+  
   try {
     const project = await Project.findById(req.params.id).populate(
       "author",
       "username"
     );
+    console.log("User:", req.user);
+    console.log("Project owner:", project.author._id.toString());
 
     if (!project) {
       return res.status(404).json({ error: "Project not found" });
