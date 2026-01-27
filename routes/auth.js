@@ -88,6 +88,7 @@ if (passwordError) {
       lastName,
       authProvider: 'local',
       isEmailVerified: false,
+      isProfileComplete: false, // User needs to add phone number on first login
       emailVerificationToken: verificationToken,
       emailVerificationExpires: verificationExpires,
     });
@@ -129,6 +130,7 @@ if (passwordError) {
         firstName: user.firstName,
         lastName: user.lastName,
         isEmailVerified: user.isEmailVerified,
+        isProfileComplete: user.isProfileComplete,
       },
     });
   } catch (error) {
@@ -197,12 +199,16 @@ router.post("/signin", async (req, res) => {
     res.json({
       message: "Sign in successful",
       token, // Still return token for backward compatibility
+      requiresProfileCompletion: !user.isProfileComplete,
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phoneNumber: user.phoneNumber,
+        authProvider: user.authProvider,
+        isProfileComplete: user.isProfileComplete,
         isAdmin: adminStatus.isAdmin,
         adminRole: adminStatus.adminRole,
       },
@@ -270,6 +276,146 @@ router.put("/profile", authenticateToken, async (req, res) => {
   }
 });
 
+// ================================
+// Complete Profile Route (First-time Google OAuth users)
+// ================================
+
+// Complete profile for Google OAuth users (first-time login)
+router.post("/complete-profile", authenticateToken, async (req, res) => {
+  try {
+    const { username, firstName, lastName, phoneNumber } = req.body;
+
+    // Validation - All fields are mandatory
+    if (!username || !firstName || !lastName || !phoneNumber) {
+      return res.status(400).json({ 
+        error: "All fields are required: username, first name, last name, and phone number" 
+      });
+    }
+
+    // Username validation
+    if (username.length < 3 || username.length > 20) {
+      return res.status(400).json({
+        error: "Username must be between 3 and 20 characters",
+      });
+    }
+
+    // First name validation
+    if (firstName.trim().length < 2) {
+      return res.status(400).json({
+        error: "First name must be at least 2 characters",
+      });
+    }
+
+    // Last name validation
+    if (lastName.trim().length < 2) {
+      return res.status(400).json({
+        error: "Last name must be at least 2 characters",
+      });
+    }
+
+    // Check if username is already taken by another user
+    const existingUser = await User.findOne({ 
+      username, 
+      _id: { $ne: req.user._id } 
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ error: "Username already taken" });
+    }
+
+    // Phone number validation - Indian mobile number (10 digits starting with 6, 7, 8, or 9)
+    // Remove spaces, dashes, and country code (+91 or 91)
+    let cleanedPhone = phoneNumber.replace(/[\s\-]/g, '');
+    
+    // Remove +91 or 91 prefix if present
+    if (cleanedPhone.startsWith('+91')) {
+      cleanedPhone = cleanedPhone.slice(3);
+    } else if (cleanedPhone.startsWith('91') && cleanedPhone.length === 12) {
+      cleanedPhone = cleanedPhone.slice(2);
+    }
+    
+    // Indian mobile number regex: 10 digits starting with 6, 7, 8, or 9
+    const indianPhoneRegex = /^[6-9]\d{9}$/;
+    
+    if (!indianPhoneRegex.test(cleanedPhone)) {
+      return res.status(400).json({ 
+        error: "Please enter a valid 10-digit Indian mobile number" 
+      });
+    }
+
+    // Update user profile
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        username: username.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phoneNumber: cleanedPhone, // Store cleaned 10-digit number
+        isProfileComplete: true
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check admin status
+    const adminStatus = await checkAdminStatus(updatedUser._id);
+
+    res.json({
+      message: "Profile completed successfully",
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        phoneNumber: updatedUser.phoneNumber,
+        avatar: updatedUser.avatar,
+        authProvider: updatedUser.authProvider,
+        isProfileComplete: updatedUser.isProfileComplete,
+        isAdmin: adminStatus.isAdmin,
+        adminRole: adminStatus.adminRole,
+        createdAt: updatedUser.createdAt,
+        lastLogin: updatedUser.lastLogin,
+      },
+    });
+  } catch (error) {
+    console.error("Complete profile error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "Username already exists" });
+    }
+    res.status(500).json({ error: "Server error during profile completion" });
+  }
+});
+
+// Get profile completion status
+router.get("/profile-status", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      isProfileComplete: user.isProfileComplete,
+      authProvider: user.authProvider,
+      user: {
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phoneNumber: user.phoneNumber,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error("Profile status error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // Verify token route
 router.get("/verify", authenticateToken, (req, res) => {
   res.json({ valid: true, user: req.user });
@@ -329,6 +475,8 @@ router.get("/me", async (req, res) => {
         createdAt: user.createdAt,
         lastLogin: user.lastLogin,
         isEmailVerified: user.isEmailVerified,
+        isProfileComplete: user.isProfileComplete,
+        phoneNumber: user.phoneNumber,
         isAdmin: adminStatus.isAdmin,
         adminRole: adminStatus.adminRole,
         adminPermissions: adminStatus.adminPermissions
@@ -447,7 +595,7 @@ router.get("/google/callback", async (req, res) => {
         googleEmail: email,
         authProvider: 'google',
         password: null,
-
+        isProfileComplete: false, // New Google users need to complete profile
         isEmailVerified: true,
         isVerified: true
       });
@@ -485,8 +633,14 @@ router.get("/google/callback", async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    // Redirect to frontend (no token in URL)
-    res.redirect(`${FRONTEND_URL}/#/`);
+    // Redirect based on profile completion status
+    if (!user.isProfileComplete) {
+      // New Google user - redirect to complete profile page
+      res.redirect(`${FRONTEND_URL}/#/complete-profile`);
+    } else {
+      // Existing user with complete profile - redirect to home
+      res.redirect(`${FRONTEND_URL}/#/`);
+    }
   } catch (error) {
     console.error("Google callback error:", error);
     res.redirect(`${FRONTEND_URL}/#/?error=auth_failed`);
@@ -542,6 +696,12 @@ router.get("/verify-email/:token", async (req, res) => {
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
+
+    // Redirect based on profile completion status
+    if (!user.isProfileComplete) {
+      // User needs to complete profile (add phone number)
+      return res.redirect(`${FRONTEND_URL}/#/complete-profile?email_verification=success`);
+    }
 
     // Redirect the user to the frontend app with success status
     return res.redirect(`${FRONTEND_URL}/#/?email_verification=success`);

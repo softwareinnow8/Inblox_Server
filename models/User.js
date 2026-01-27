@@ -194,6 +194,16 @@ const userSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+        // Profile completion tracking for Google OAuth users
+        isProfileComplete: {
+            type: Boolean,
+            default: false, // false for Google users until they complete profile
+        },
+        phoneNumber: {
+            type: String,
+            trim: true,
+            default: null,
+        },
     },
     {
         timestamps: true,
