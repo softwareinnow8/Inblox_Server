@@ -102,6 +102,58 @@ import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
 
+
+/**
+ * Resolve Arduino CLI path based on OS
+ */
+function resolveArduinoCliPath() {
+  const isWindows = os.platform() === "win32";
+  
+  // Default to PATH
+  let arduinoCliPath = "arduino-cli";
+  
+  // Try common installation paths
+  const possiblePaths = isWindows 
+    ? [
+        "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+        "C:\\arduino-cli\\arduino-cli.exe"
+      ]
+    : [
+        "/opt/render/project/src/arduino-cli/arduino-cli",
+        "/usr/local/bin/arduino-cli",
+        "/usr/bin/arduino-cli"
+      ];
+  
+  for (const testPath of possiblePaths) {
+    if (fs.existsSync(testPath)) {
+      arduinoCliPath = testPath;
+      break;
+    }
+  }
+  
+  return arduinoCliPath;
+}
+
+/**
+ * Resolve Arduino config flag based on environment
+ */
+function resolveArduinoConfigFlag() {
+  // Check for Render.com specific config location
+  const renderConfigPath = "/opt/render/project/src/.arduino15/arduino-cli.yaml";
+  if (fs.existsSync(renderConfigPath)) {
+    return `--config-file "${renderConfigPath}"`;
+  }
+  
+  // Check for custom config in project directory
+  const projectConfigPath = path.join(__dirname, ".arduino15", "arduino-cli.yaml");
+  if (fs.existsSync(projectConfigPath)) {
+    return `--config-file "${projectConfigPath}"`;
+  }
+  
+  // Use default config (no flag needed)
+  return "";
+}
+
 // User model
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
@@ -218,6 +270,14 @@ app.options("/api/compile", cors());
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", compileLimiter, async (req, res) => {
   let { code, board, boardType = "arduino-uno" } = req.body;
+   // ✅ ADD THIS LOGGING
+  console.log('📝 Received code from frontend:');
+  console.log('════════════════════════════════════════');
+  console.log(code);
+  console.log('════════════════════════════════════════');
+  console.log('📊 Code length:', code.length);
+  console.log('📊 Line count:', code.split('\n').length);
+  
   
   // Map boardType to FQBN if board not provided
   if (!board) {
@@ -243,6 +303,11 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
   try {
     fs.mkdirSync(sketchPath, { recursive: true });
     fs.writeFileSync(sketchFile, code);
+
+      // ✅ ADD THIS TOO - Save the problematic sketch for inspection
+    const debugSketchPath = '/var/www/temp/last_compile_debug.ino';
+    fs.writeFileSync(debugSketchPath, code);
+    console.log('💾 Debug sketch saved to:', debugSketchPath);
 
     console.log(`📝 Compiling sketch for ${board}...`);
 
@@ -275,6 +340,7 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
+    const configFile = resolveArduinoConfigFlag();
     console.log(`⚙️  Config file: ${configFile || 'default'}`);
 
     // Libraries are now installed on-demand by dependency manager
