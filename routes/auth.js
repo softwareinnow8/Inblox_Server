@@ -190,13 +190,12 @@ router.post("/signin", async (req, res) => {
     res.cookie("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      sameSite: "Lax",
+      maxAge: 24 * 60 * 60 * 1000
     });
 
     res.json({
       message: "Sign in successful",
-      token, // Still return token for backward compatibility
       user: {
         id: user._id,
         username: user.username,
@@ -279,8 +278,8 @@ router.get("/verify", authenticateToken, (req, res) => {
 router.post("/signout", (req, res) => {
   res.clearCookie("auth_token", {
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-    secure: process.env.NODE_ENV === "production"
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "Lax"
   });
   res.json({ message: "Signed out successfully", success: true });
 });

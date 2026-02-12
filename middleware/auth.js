@@ -9,7 +9,7 @@ dotenv.config();
 const authenticateToken = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+        const token = req.cookies?.auth_token || (authHeader && authHeader.split(" ")[1]); // Cookie or Bearer
 
         if (!token) {
             return res.status(401).json({ error: "Access token required" });
@@ -39,7 +39,7 @@ const authenticateToken = async (req, res, next) => {
 const optionalAuth = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.split(" ")[1];
+        const token = req.cookies?.auth_token || (authHeader && authHeader.split(" ")[1]);
 
         if (token) {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
