@@ -236,13 +236,14 @@ router.get("/profile", authenticateToken, async (req, res) => {
 // Update user profile
 router.put("/profile", authenticateToken, async (req, res) => {
   try {
-    const { firstName, lastName, avatar } = req.body;
+    const { firstName, lastName, avatar, profilePicture } = req.body;
 
     // Update only provided fields
     const updateFields = {};
     if (firstName !== undefined) updateFields.firstName = firstName;
     if (lastName !== undefined) updateFields.lastName = lastName;
     if (avatar !== undefined) updateFields.avatar = avatar;
+    if (profilePicture !== undefined) updateFields.profilePicture = profilePicture;
 
     const updatedUser = await User.findByIdAndUpdate(
       req.user._id,
@@ -259,6 +260,45 @@ router.put("/profile", authenticateToken, async (req, res) => {
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         avatar: updatedUser.avatar,
+        profilePicture: updatedUser.profilePicture,
+        createdAt: updatedUser.createdAt,
+        lastLogin: updatedUser.lastLogin,
+      },
+    });
+  } catch (error) {
+    console.error("Profile update error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Update user profile (POST variant for clients expecting POST)
+router.post("/profile", authenticateToken, async (req, res) => {
+  try {
+    const { firstName, lastName, avatar, profilePicture } = req.body;
+
+    // Update only provided fields
+    const updateFields = {};
+    if (firstName !== undefined) updateFields.firstName = firstName;
+    if (lastName !== undefined) updateFields.lastName = lastName;
+    if (avatar !== undefined) updateFields.avatar = avatar;
+    if (profilePicture !== undefined) updateFields.profilePicture = profilePicture;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      updateFields,
+      { new: true }
+    );
+
+    res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        avatar: updatedUser.avatar,
+        profilePicture: updatedUser.profilePicture,
         createdAt: updatedUser.createdAt,
         lastLogin: updatedUser.lastLogin,
       },
@@ -547,6 +587,87 @@ router.get("/verify-email/:token", async (req, res) => {
   } catch (error) {
     console.error("Email verification error:", error);
     return res.redirect(`${FRONTEND_URL}/#/?email_verification=server_error`);
+  }
+});
+
+// Accept invite and complete user profile
+router.post("/accept-invite", async (req, res) => {
+  try {
+    const { token, username, firstName, lastName, password } = req.body;
+
+    if (!token || !username || !firstName || !lastName || !password) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    if (username.length < 3 || username.length > 20) {
+      return res.status(400).json({
+        error: "Username must be between 3 and 20 characters",
+      });
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired invite token" });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({ error: "Invite already accepted" });
+    }
+
+    if (user.authProvider !== "local") {
+      return res.status(400).json({
+        error: "This account uses social login and cannot accept invites",
+      });
+    }
+
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername && existingUsername._id.toString() !== user._id.toString()) {
+      return res.status(400).json({ error: "Username already taken" });
+    }
+
+    user.username = username;
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.password = password;
+    user.isEmailVerified = true;
+    user.isVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationExpires = null;
+    user.lastLogin = new Date();
+    await user.save();
+
+    const adminStatus = await checkAdminStatus(user._id);
+    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
+    res.cookie("auth_token", jwtToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({
+      message: "Invite accepted successfully",
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isEmailVerified: user.isEmailVerified,
+      },
+    });
+  } catch (error) {
+    console.error("Accept invite error:", error);
+    res.status(500).json({ error: "Server error while accepting invite" });
   }
 });
 

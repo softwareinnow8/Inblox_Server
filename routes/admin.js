@@ -1,13 +1,39 @@
 import express from "express";
+import crypto from "crypto";
 import User from "../models/User.js";
 import Project from "../models/Project.js";
 import Admin from "../models/Admin.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "../middleware/authAdmin.js";
+import { sendInviteEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
 // ✅ ALL routes protected by authenticateAdmin middleware
 router.use(authenticateAdmin);
+
+const normalizeEmail = (email) => email.trim().toLowerCase();
+
+const buildUsernameBase = (email) => {
+    const localPart = email.split("@")[0] || "user";
+    const cleaned = localPart.replace(/[^a-zA-Z0-9]/g, "");
+    if (cleaned.length >= 3) {
+        return cleaned.toLowerCase();
+    }
+    return `user${cleaned}`.toLowerCase();
+};
+
+const generateUniqueUsername = async (email, attempts = 5) => {
+    const base = buildUsernameBase(email);
+    for (let index = 0; index < attempts; index += 1) {
+        const suffix = index === 0 ? "" : `-${crypto.randomBytes(3).toString("hex")}`;
+        const candidate = `${base}${suffix}`;
+        const existing = await User.findOne({ username: candidate });
+        if (!existing) {
+            return candidate;
+        }
+    }
+    return null;
+};
 
 // ==================== ADMIN MANAGEMENT (Super-Admin Only) ====================
 
@@ -172,6 +198,77 @@ router.delete("/admins/:id", authenticateSuperAdmin, async (req, res) => {
 });
 
 // ==================== USER MANAGEMENT ====================
+
+// POST /api/admin/invites - Invite a new user by email
+router.post("/invites", async (req, res) => {
+    try {
+        const { email, firstName = "", lastName = "" } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: "Email is required" });
+        }
+
+        const normalizedEmail = normalizeEmail(email);
+        const existingUser = await User.findOne({ email: normalizedEmail });
+
+        if (existingUser) {
+            if (existingUser.isEmailVerified) {
+                return res.status(400).json({ error: "User with this email already exists" });
+            }
+
+            if (existingUser.authProvider !== "local") {
+                return res.status(400).json({ error: "User already exists with social login" });
+            }
+        }
+
+        const verificationToken = crypto.randomBytes(32).toString("hex");
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        let user = existingUser;
+        if (user) {
+            user.emailVerificationToken = verificationToken;
+            user.emailVerificationExpires = verificationExpires;
+            user.isEmailVerified = false;
+            user.isVerified = false;
+            if (!user.firstName && firstName) user.firstName = firstName;
+            if (!user.lastName && lastName) user.lastName = lastName;
+            await user.save();
+        } else {
+            const generatedUsername = await generateUniqueUsername(normalizedEmail);
+            if (!generatedUsername) {
+                return res.status(500).json({ error: "Failed to generate a username for invite" });
+            }
+
+            user = await User.create({
+                username: generatedUsername,
+                email: normalizedEmail,
+                password: null,
+                firstName,
+                lastName,
+                authProvider: "local",
+                isEmailVerified: false,
+                isVerified: false,
+                emailVerificationToken: verificationToken,
+                emailVerificationExpires: verificationExpires,
+            });
+        }
+
+        try {
+            await sendInviteEmail(user.email, verificationToken, req.user?.firstName || "Admin");
+        } catch (emailError) {
+            console.error("Failed to send invite email:", emailError);
+            return res.status(500).json({ error: "Failed to send invite email" });
+        }
+
+        res.status(201).json({
+            message: "Invite sent successfully",
+            email: user.email,
+        });
+    } catch (error) {
+        console.error("Admin invite user error:", error);
+        res.status(500).json({ error: "Failed to invite user" });
+    }
+});
 
 // GET /api/admin/users - List all users with pagination
 router.get("/users", async (req, res) => {
