@@ -365,6 +365,68 @@ router.put("/users/:id", async (req, res) => {
     }
 });
 
+// PATCH /api/admin/users/:id/delete - Soft delete user (admin only)
+router.post("/users/:id/delete", async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const { user: payloadUser, delete: deleteFlag } = req.body || {};
+
+        if (deleteFlag !== true) {
+            return res.status(400).json({ error: "Delete flag must be true" });
+        }
+
+        if (!payloadUser || !payloadUser.id) {
+            return res.status(400).json({ error: "User payload is required" });
+        }
+
+        if (payloadUser.id !== userId) {
+            return res.status(400).json({ error: "User ID mismatch" });
+        }
+
+        // Prevent self-deletion
+        if (userId === req.user._id.toString()) {
+            return res.status(400).json({ 
+                error: "You cannot delete your own admin account" 
+            });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.isDeleted) {
+            return res.status(400).json({ error: "User is already deleted" });
+        }
+
+        user.isDeleted = true;
+        user.deletedAt = new Date();
+        user.deletedBy = req.user._id;
+        user.isAdmin = false;
+        await user.save();
+
+        const adminRecord = await Admin.findOne({ userId, isActive: true });
+        if (adminRecord) {
+            adminRecord.isActive = false;
+            await adminRecord.save();
+        }
+
+        res.json({
+            message: "User soft-deleted successfully",
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                isDeleted: user.isDeleted,
+                deletedAt: user.deletedAt,
+            },
+        });
+    } catch (error) {
+        console.error("Admin soft delete user error:", error);
+        res.status(500).json({ error: "Failed to soft delete user" });
+    }
+});
+
 // DELETE /api/admin/users/:id - Delete user and their projects
 router.delete("/users/:id", async (req, res) => {
     try {

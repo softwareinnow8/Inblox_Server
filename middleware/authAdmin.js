@@ -27,6 +27,10 @@ const authenticateAdmin = async (req, res, next) => {
             return res.status(401).json({ error: "User not found" });
         }
 
+        if (user.isDeleted) {
+            return res.status(403).json({ error: "Account has been deleted" });
+        }
+
         // Check if user is an active admin in Admin collection
         const adminRecord = await Admin.findOne({ 
             userId: user._id, 
@@ -80,6 +84,10 @@ const authenticateSuperAdmin = async (req, res, next) => {
 
         if (!user) {
             return res.status(401).json({ error: "User not found" });
+        }
+
+        if (user.isDeleted) {
+            return res.status(403).json({ error: "Account has been deleted" });
         }
 
         const adminRecord = await Admin.findOne({ 

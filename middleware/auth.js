@@ -22,6 +22,10 @@ const authenticateToken = async (req, res, next) => {
             return res.status(401).json({ error: "User not found" });
         }
 
+        if (user.isDeleted) {
+            return res.status(403).json({ error: "Account has been deleted" });
+        }
+
         req.user = user;
         next();
     } catch (error) {
@@ -44,7 +48,7 @@ const optionalAuth = async (req, res, next) => {
         if (token) {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             const user = await User.findById(decoded.userId);
-            if (user) {
+            if (user && !user.isDeleted) {
                 req.user = user;
             }
         }

@@ -161,6 +161,10 @@ router.post("/signin", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    if (user.isDeleted) {
+      return res.status(403).json({ error: "Account has been deleted" });
+    }
+
     // Check if user signed up with local auth (not Google)
     if (user.authProvider === 'local' && !user.isEmailVerified) {
       return res.status(403).json({ 
