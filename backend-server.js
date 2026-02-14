@@ -96,7 +96,8 @@ app.options("*", cors(corsOptions));
 // Cookie parser middleware (needed for HttpOnly cookies)
 app.use(cookieParser());
 
-app.use(express.json());
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // Serve static files from parent directory for compilation test
 app.use('/static', express.static(path.join(__dirname, '..', 'static')));
