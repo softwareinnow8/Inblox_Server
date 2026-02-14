@@ -159,10 +159,14 @@ router.post("/signin", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // Block login until email is verified
-    if (user.authProvider === "local" && !user.isEmailVerified) {
-      return res.status(403).json({
-        message: "Please verify your email before logging in",
+    if (user.isDeleted) {
+      return res.status(403).json({ error: "Account has been deleted" });
+    }
+
+    // Check if user signed up with local auth (not Google)
+    if (user.authProvider === 'local' && !user.isEmailVerified) {
+      return res.status(403).json({ 
+        error: "Please verify your email before signing in",
         requiresEmailVerification: true,
         email: user.email
       });
@@ -212,126 +216,10 @@ router.post("/signin", async (req, res) => {
 
 
 // ================================
-// Google OAuth Routes
+// Google OAuth Routes (Server-Side Flow)
 // ================================
 
-// Google One Tap Sign-In (Client-Side Flow) - POST endpoint
-router.post("/google-callback", async (req, res) => {
-  try {
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ error: "Token is required" });
-    }
-
-    if (!GOOGLE_CLIENT_ID) {
-      console.error("Google OAuth not configured");
-      return res.status(500).json({ error: "Server configuration error: Google OAuth not configured" });
-    }
-
-    // Verify the ID token from Google One Tap
-    const client = new OAuth2Client(GOOGLE_CLIENT_ID);
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: GOOGLE_CLIENT_ID
-    });
-
-    const googleProfile = ticket.getPayload();
-    const { email, given_name, family_name, picture, sub } = googleProfile;
-
-    if (!email || !sub) {
-      console.error("Invalid Google profile:", googleProfile);
-      return res.status(400).json({ error: "Invalid Google profile" });
-    }
-
-    // Find or create user
-    let user = await User.findOne({
-      $or: [{ googleId: sub }, { email: email.toLowerCase() }]
-    });
-
-    if (!user) {
-      // Create new user
-      let username = email.split('@')[0];
-      
-      // Generate unique username
-      let existingUser = await User.findOne({ username });
-      let counter = 1;
-      while (existingUser) {
-        username = `${email.split('@')[0]}${counter}`;
-        existingUser = await User.findOne({ username });
-        counter++;
-      }
-
-      user = new User({
-        username,
-        email: email.toLowerCase(),
-        firstName: given_name || 'User',
-        lastName: family_name || '',
-        avatar: picture || null,
-        googleId: sub,
-        googleEmail: email,
-        authProvider: 'google',
-        password: null,
-        isEmailVerified: true,
-        isVerified: true
-      });
-
-      await user.save();
-      console.log(`✅ Created new Google user: ${user.email}`);
-    } else {
-      // Update existing user
-      if (user.googleId !== sub) {
-        user.googleId = sub;
-      }
-      if (!user.googleEmail) {
-        user.googleEmail = email;
-      }
-      user.authProvider = 'google';
-      if (!user.avatar && picture) {
-        user.avatar = picture;
-      }
-      console.log(`✅ Existing user logged in: ${user.email}`);
-    }
-
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Generate JWT token
-    const jwtToken = generateToken(user._id);
-
-    // Set HttpOnly cookie (SECURE)
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-
-    // Return user data and token
-    res.json({
-      message: "Google sign-in successful",
-      token: jwtToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-        authProvider: user.authProvider
-      }
-    });
-  } catch (error) {
-    console.error("Google One Tap callback error:", error);
-    if (error.message && error.message.includes("Token used too late")) {
-      return res.status(401).json({ error: "Token expired" });
-    }
-    res.status(500).json({ error: "Failed to authenticate with Google" });
-  }
-});
-
-// Step 1: Redirect to Google OAuth (Server-Side Flow)
+// Step 1: Redirect to Google OAuth
 router.get("/google", (req, res) => {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     console.error("Google OAuth not configured in environment variables");
