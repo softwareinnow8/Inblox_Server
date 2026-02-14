@@ -26,6 +26,7 @@ const PORT = 3001; // Force backend to use port 3001
 
 // Import routes
 import authRoutes from "./routes/auth.js";
+import userRoutes from "./routes/user.js";
 import projectRoutes from "./routes/projects.js";
 import arduinoUploadRouter from "./routes/arduino-upload.js";
 import adminRoutes from "./routes/admin.js";
@@ -710,6 +711,7 @@ function parseIntelHex(hexString) {
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
