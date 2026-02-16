@@ -25,6 +25,7 @@ import userRoutes from "./routes/user.js";
 import projectRoutes from "./routes/projects.js";
 import hardwareRoutes from "./routes/hardware.js";
 import adminRoutes from "./routes/admin.js";
+import contactRoutes from "./routes/contact.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 
 const app = express();
@@ -270,6 +271,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/hardware", hardwareRoutes);
+app.use("/api/contact", contactRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
 
 // Health check endpoint

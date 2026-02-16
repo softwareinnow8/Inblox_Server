@@ -3,6 +3,7 @@ import crypto from "crypto";
 import User from "../models/User.js";
 import Project from "../models/Project.js";
 import Admin from "../models/Admin.js";
+import ContactMessage from "../models/ContactMessage.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "../middleware/authAdmin.js";
 import { sendInviteEmail } from "../services/emailService.js";
 
@@ -689,6 +690,313 @@ router.get("/search", async (req, res) => {
     } catch (error) {
         console.error("Admin search error:", error);
         res.status(500).json({ error: "Search failed" });
+    }
+});
+
+// ==================== SUPPORT MESSAGE MANAGEMENT ====================
+
+// GET /api/admin/support-messages - List all support messages with filters
+router.get("/support-messages", async (req, res) => {
+    try {
+        const {
+            status,
+            priority,
+            category,
+            includeDeleted,
+            page = 1,
+            limit = 20,
+            sortBy = "createdAt",
+            order = "desc",
+        } = req.query;
+
+        // Build filter query
+        const filter = {};
+        if (includeDeleted !== "true") filter.isDeleted = false;
+        if (status) filter.status = status;
+        if (priority) filter.priority = priority;
+        if (category) filter.category = category;
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const sortOrder = order === "asc" ? 1 : -1;
+
+        // Get messages with pagination
+        const messages = await ContactMessage.find(filter)
+            .sort({ [sortBy]: sortOrder })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate("userId", "username email firstName lastName")
+            .populate("resolvedBy", "username email")
+            .lean();
+
+        // Get total count for pagination
+        const total = await ContactMessage.countDocuments(filter);
+
+        // Get status counts for dashboard
+        const statusCounts = await ContactMessage.aggregate([
+            { $match: includeDeleted === "true" ? {} : { isDeleted: false } },
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
+
+        res.json({
+            success: true,
+            messages,
+            pagination: {
+                current: parseInt(page),
+                total: Math.ceil(total / parseInt(limit)),
+                totalMessages: total,
+                hasNext: skip + messages.length < total,
+                hasPrev: parseInt(page) > 1,
+            },
+            statusCounts: statusCounts.reduce((acc, item) => {
+                acc[item._id] = item.count;
+                return acc;
+            }, {}),
+        });
+    } catch (error) {
+        console.error("Error fetching support messages:", error);
+        res.status(500).json({ error: "Failed to fetch support messages" });
+    }
+});
+
+// GET /api/admin/support-messages/:id - Get specific support message
+router.get("/support-messages/:id", async (req, res) => {
+    try {
+        const { includeDeleted } = req.query;
+        const message = await ContactMessage.findOne({
+            _id: req.params.id,
+            ...(includeDeleted === "true" ? {} : { isDeleted: false }),
+        })
+            .populate("userId", "username email firstName lastName avatar")
+            .populate("resolvedBy", "username email firstName lastName")
+            .lean();
+
+        if (!message) {
+            return res.status(404).json({ error: "Message not found" });
+        }
+
+        res.json({
+            success: true,
+            message,
+        });
+    } catch (error) {
+        console.error("Error fetching support message:", error);
+        res.status(500).json({ error: "Failed to fetch message" });
+    }
+});
+
+// PATCH /api/admin/support-messages/:id/status - Update message status
+router.patch("/support-messages/:id/status", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, adminNotes } = req.body;
+
+        if (!status) {
+            return res.status(400).json({ error: "Status is required" });
+        }
+
+        const validStatuses = ["pending", "in-progress", "resolved", "closed"];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+            });
+        }
+
+        const updateData = {
+            status,
+            ...(adminNotes && { adminNotes }),
+        };
+
+        // If marking as resolved, record who resolved it and when
+        if (status === "resolved" || status === "closed") {
+            updateData.resolvedBy = req.user.userId;
+            updateData.resolvedAt = new Date();
+        }
+
+        const message = await ContactMessage.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
+        )
+            .populate("userId", "username email")
+            .populate("resolvedBy", "username email");
+
+        if (!message) {
+            return res.status(404).json({ error: "Message not found" });
+        }
+
+        res.json({
+            success: true,
+            message: "Status updated successfully",
+            data: message,
+        });
+    } catch (error) {
+        console.error("Error updating message status:", error);
+        res.status(500).json({ error: "Failed to update status" });
+    }
+});
+
+// PATCH /api/admin/support-messages/:id/priority - Update message priority
+router.patch("/support-messages/:id/priority", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { priority } = req.body;
+
+        if (!priority) {
+            return res.status(400).json({ error: "Priority is required" });
+        }
+
+        const validPriorities = ["low", "medium", "high", "urgent"];
+        if (!validPriorities.includes(priority)) {
+            return res.status(400).json({
+                error: `Invalid priority. Must be one of: ${validPriorities.join(", ")}`,
+            });
+        }
+
+        const message = await ContactMessage.findByIdAndUpdate(
+            id,
+            { priority },
+            { new: true, runValidators: true }
+        )
+            .populate("userId", "username email")
+            .populate("resolvedBy", "username email");
+
+        if (!message) {
+            return res.status(404).json({ error: "Message not found" });
+        }
+
+        res.json({
+            success: true,
+            message: "Priority updated successfully",
+            data: message,
+        });
+    } catch (error) {
+        console.error("Error updating message priority:", error);
+        res.status(500).json({ error: "Failed to update priority" });
+    }
+});
+
+// PATCH /api/admin/support-messages/:id/notes - Add/update admin notes
+router.patch("/support-messages/:id/notes", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { adminNotes } = req.body;
+
+        const message = await ContactMessage.findByIdAndUpdate(
+            id,
+            { adminNotes: adminNotes || "" },
+            { new: true, runValidators: true }
+        )
+            .populate("userId", "username email")
+            .populate("resolvedBy", "username email");
+
+        if (!message) {
+            return res.status(404).json({ error: "Message not found" });
+        }
+
+        res.json({
+            success: true,
+            message: "Notes updated successfully",
+            data: message,
+        });
+    } catch (error) {
+        console.error("Error updating admin notes:", error);
+        res.status(500).json({ error: "Failed to update notes" });
+    }
+});
+
+//  /api/admin/support-messages/:id - Delete a support message (Super Admin only) (soft delete)
+router.post("/support-messages/:id", authenticateSuperAdmin, async (req, res) => {
+    try {
+        const message = await ContactMessage.findByIdAndUpdate(
+            req.params.id,
+            {
+                isDeleted: true,
+                deletedAt: new Date(),
+                deletedBy: req.user._id,
+                status: "closed",
+            },
+            { new: true }
+        );
+
+        if (!message) {
+            return res.status(404).json({ error: "Message not found" });
+        }
+
+        res.json({
+            success: true,
+            message: "Support message deleted successfully",
+            data: message,
+        });
+    } catch (error) {
+        console.error("Error deleting support message:", error);
+        res.status(500).json({ error: "Failed to delete message" });
+    }
+});
+
+// GET /api/admin/support-messages/stats/dashboard - Get dashboard statistics
+router.get("/support-messages/stats/dashboard", async (req, res) => {
+    try {
+        const now = new Date();
+        const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        const [
+            totalMessages,
+            pendingMessages,
+            resolvedMessages,
+            recentMessages,
+            categoryStats,
+            priorityStats,
+        ] = await Promise.all([
+            ContactMessage.countDocuments({ isDeleted: false }),
+            ContactMessage.countDocuments({ status: "pending", isDeleted: false }),
+            ContactMessage.countDocuments({ status: "resolved", isDeleted: false }),
+            ContactMessage.countDocuments({ createdAt: { $gte: last30Days }, isDeleted: false }),
+            ContactMessage.aggregate([
+                { $match: { isDeleted: false } },
+                {
+                    $group: {
+                        _id: "$category",
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+            ContactMessage.aggregate([
+                { $match: { isDeleted: false } },
+                {
+                    $group: {
+                        _id: "$priority",
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+        ]);
+
+        res.json({
+            success: true,
+            stats: {
+                total: totalMessages,
+                pending: pendingMessages,
+                resolved: resolvedMessages,
+                last30Days: recentMessages,
+                categories: categoryStats.reduce((acc, item) => {
+                    acc[item._id] = item.count;
+                    return acc;
+                }, {}),
+                priorities: priorityStats.reduce((acc, item) => {
+                    acc[item._id] = item.count;
+                    return acc;
+                }, {}),
+            },
+        });
+    } catch (error) {
+        console.error("Error fetching support stats:", error);
+        res.status(500).json({ error: "Failed to fetch statistics" });
     }
 });
 
