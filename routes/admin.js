@@ -1,9 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import User from "../models/User.js";
-import Project from "../models/Project.js";
-import Admin from "../models/Admin.js";
-import ContactMessage from "../models/ContactMessage.js";
+import prisma from "../prismaClient.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "../middleware/authAdmin.js";
 import { sendInviteEmail } from "../services/emailService.js";
 
@@ -40,7 +37,7 @@ const generateUniqueUsername = async (email, attempts = 5) => {
     for (let index = 0; index < attempts; index += 1) {
         const suffix = index === 0 ? "" : `-${crypto.randomBytes(3).toString("hex")}`;
         const candidate = `${base}${suffix}`;
-        const existing = await User.findOne({ username: candidate });
+        const existing = await prisma.user.findUnique({ where: { username: candidate } });
         if (!existing) {
             return candidate;
         }
@@ -53,11 +50,42 @@ const generateUniqueUsername = async (email, attempts = 5) => {
 // GET /api/admin/admins - List all admins
 router.get("/admins", async (req, res) => {
     try {
-        const admins = await Admin.getAllActiveAdmins();
+        const admins = await prisma.admin.findMany({
+            where: { isActive: true },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        avatar: true,
+                        createdAt: true,
+                    },
+                },
+                createdBy: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+
+        const formattedAdmins = admins.map((admin) => ({
+            ...admin,
+            userId: admin.user,
+            createdBy: admin.createdBy,
+        }));
 
         res.json({
-            admins,
-            total: admins.length,
+            admins: formattedAdmins,
+            total: formattedAdmins.length,
         });
     } catch (error) {
         console.error("Get admins error:", error);
@@ -75,13 +103,13 @@ router.post("/admins", authenticateSuperAdmin, async (req, res) => {
         }
 
         // Check if user exists
-        const user = await User.findById(userId);
+        const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
 
         // Check if already admin
-        const existingAdmin = await Admin.findOne({ userId });
+        const existingAdmin = await prisma.admin.findFirst({ where: { userId } });
         if (existingAdmin && existingAdmin.isActive) {
             return res.status(400).json({ error: "User is already an admin" });
         }
@@ -89,36 +117,72 @@ router.post("/admins", authenticateSuperAdmin, async (req, res) => {
         // Create or reactivate admin
         let admin;
         if (existingAdmin) {
-            existingAdmin.isActive = true;
-            existingAdmin.role = role;
-            existingAdmin.notes = notes;
-            existingAdmin.createdBy = req.user._id;
-            existingAdmin.permissions = {
-                ...getDefaultPermissionsForRole(role),
-                ...(existingAdmin.permissions || {}),
-            };
-            admin = await existingAdmin.save();
+            admin = await prisma.admin.update({
+                where: { id: existingAdmin.id },
+                data: {
+                    isActive: true,
+                    role,
+                    notes,
+                    createdById: req.user.id,
+                },
+            });
         } else {
-            admin = await Admin.create({
-                userId,
-                role,
-                notes,
-                createdBy: req.user._id,
-                permissions: getDefaultPermissionsForRole(role),
+            admin = await prisma.admin.create({
+                data: {
+                    userId,
+                    role,
+                    notes,
+                    createdById: req.user.id,
+                    permissions: {
+                        canManageUsers: true,
+                        canManageProjects: true,
+                        canManageAdmins: role === "super-admin",
+                        canViewStats: true,
+                    },
+                },
             });
         }
 
         // Set isAdmin flag in User model
-        user.isAdmin = true;
-        await user.save();
+        await prisma.user.update({
+            where: { id: userId },
+            data: { isAdmin: true },
+        });
 
-        const adminWithUser = await Admin.findById(admin._id)
-            .populate("userId", "username email firstName lastName avatar")
-            .populate("createdBy", "username email firstName lastName");
+        const adminWithUser = await prisma.admin.findUnique({
+            where: { id: admin.id },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        avatar: true,
+                    },
+                },
+                createdBy: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+        });
+
+        const formattedAdmin = {
+            ...adminWithUser,
+            userId: adminWithUser.user,
+            createdBy: adminWithUser.createdBy,
+        };
 
         res.status(201).json({
             message: "Admin created successfully",
-            admin: adminWithUser,
+            admin: formattedAdmin,
         });
     } catch (error) {
         console.error("Create admin error:", error);
@@ -132,39 +196,50 @@ router.put("/admins/:id", authenticateSuperAdmin, async (req, res) => {
         const { role, permissions, notes } = req.body;
         const adminId = req.params.id;
 
-        const admin = await Admin.findById(adminId);
+        const admin = await prisma.admin.findUnique({ where: { id: adminId } });
         if (!admin) {
             return res.status(404).json({ error: "Admin not found" });
         }
 
         // Prevent self-demotion from super-admin
-        if (admin.userId.toString() === req.user._id.toString() && role && role !== "super-admin") {
+        if (admin.userId === req.user.id && role && role !== "super-admin") {
             return res.status(400).json({ 
                 error: "You cannot demote yourself from super-admin" 
             });
         }
 
         // Update fields
-        if (role) {
-            admin.role = role;
-            admin.permissions = {
-                ...getDefaultPermissionsForRole(role),
-                ...(admin.permissions || {}),
-            };
-        }
-        if (permissions) {
-            admin.permissions = { ...admin.permissions, ...permissions };
-        }
-        if (notes !== undefined) admin.notes = notes;
+        const updatedAdmin = await prisma.admin.update({
+            where: { id: adminId },
+            data: {
+                role: role || admin.role,
+                permissions: permissions
+                    ? { ...(admin.permissions || {}), ...permissions }
+                    : admin.permissions,
+                notes: notes !== undefined ? notes : admin.notes,
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        avatar: true,
+                    },
+                },
+            },
+        });
 
-        await admin.save();
-
-        const updatedAdmin = await Admin.findById(adminId)
-            .populate("userId", "username email firstName lastName avatar");
+        const formattedAdmin = {
+            ...updatedAdmin,
+            userId: updatedAdmin.user,
+        };
 
         res.json({
             message: "Admin updated successfully",
-            admin: updatedAdmin,
+            admin: formattedAdmin,
         });
     } catch (error) {
         console.error("Update admin error:", error);
@@ -177,36 +252,47 @@ router.delete("/admins/:id", authenticateSuperAdmin, async (req, res) => {
     try {
         const adminId = req.params.id;
 
-        const admin = await Admin.findById(adminId).populate("userId");
+        const admin = await prisma.admin.findUnique({
+            where: { id: adminId },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+            },
+        });
         if (!admin) {
             return res.status(404).json({ error: "Admin not found" });
         }
 
         // Prevent self-deletion
-        if (admin.userId._id.toString() === req.user._id.toString()) {
+        if (admin.userId === req.user.id) {
             return res.status(400).json({ 
                 error: "You cannot remove your own admin privileges" 
             });
         }
 
         // Deactivate admin
-        admin.isActive = false;
-        await admin.save();
+        await prisma.admin.update({
+            where: { id: adminId },
+            data: { isActive: false },
+        });
 
-        // Remove isAdmin flag from User model
-        const user = await User.findById(admin.userId._id);
-        if (user) {
-            user.isAdmin = false;
-            await user.save();
-        }
+        await prisma.user.update({
+            where: { id: admin.userId },
+            data: { isAdmin: false },
+        });
 
         res.json({
             message: "Admin privileges revoked successfully",
             admin: {
-                id: admin._id,
-                userId: admin.userId._id,
-                username: admin.userId.username,
-                email: admin.userId.email,
+                id: admin.id,
+                userId: admin.user.id,
+                username: admin.user.username,
+                email: admin.user.email,
             },
         });
     } catch (error) {
@@ -227,7 +313,9 @@ router.post("/invites", async (req, res) => {
         }
 
         const normalizedEmail = normalizeEmail(email);
-        const existingUser = await User.findOne({ email: normalizedEmail });
+        const existingUser = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+        });
 
         if (existingUser) {
             if (existingUser.isEmailVerified) {
@@ -244,30 +332,36 @@ router.post("/invites", async (req, res) => {
 
         let user = existingUser;
         if (user) {
-            user.emailVerificationToken = verificationToken;
-            user.emailVerificationExpires = verificationExpires;
-            user.isEmailVerified = false;
-            user.isVerified = false;
-            if (!user.firstName && firstName) user.firstName = firstName;
-            if (!user.lastName && lastName) user.lastName = lastName;
-            await user.save();
+            user = await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    emailVerificationToken: verificationToken,
+                    emailVerificationExpires: verificationExpires,
+                    isEmailVerified: false,
+                    isVerified: false,
+                    firstName: user.firstName || firstName || null,
+                    lastName: user.lastName || lastName || null,
+                },
+            });
         } else {
             const generatedUsername = await generateUniqueUsername(normalizedEmail);
             if (!generatedUsername) {
                 return res.status(500).json({ error: "Failed to generate a username for invite" });
             }
 
-            user = await User.create({
-                username: generatedUsername,
-                email: normalizedEmail,
-                password: null,
-                firstName,
-                lastName,
-                authProvider: "local",
-                isEmailVerified: false,
-                isVerified: false,
-                emailVerificationToken: verificationToken,
-                emailVerificationExpires: verificationExpires,
+            user = await prisma.user.create({
+                data: {
+                    username: generatedUsername,
+                    email: normalizedEmail,
+                    password: null,
+                    firstName,
+                    lastName,
+                    authProvider: "local",
+                    isEmailVerified: false,
+                    isVerified: false,
+                    emailVerificationToken: verificationToken,
+                    emailVerificationExpires: verificationExpires,
+                },
             });
         }
 
@@ -296,12 +390,28 @@ router.get("/users", async (req, res) => {
         const skip = (page - 1) * limit;
 
         const [users, total] = await Promise.all([
-            User.find()
-                .select("-password -passwordResetToken -emailVerificationToken")
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit),
-            User.countDocuments(),
+            prisma.user.findMany({
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: limit,
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    avatar: true,
+                    authProvider: true,
+                    createdAt: true,
+                    lastLogin: true,
+                    isEmailVerified: true,
+                    isVerified: true,
+                    isAdmin: true,
+                    isDeleted: true,
+                    deletedAt: true,
+                },
+            }),
+            prisma.user.count(),
         ]);
 
         res.json({
@@ -322,22 +432,42 @@ router.get("/users", async (req, res) => {
 // GET /api/admin/users/:id - Get specific user with their projects
 router.get("/users/:id", async (req, res) => {
     try {
-        const user = await User.findById(req.params.id).select(
-            "-password -passwordResetToken -emailVerificationToken"
-        );
+        const user = await prisma.user.findUnique({
+            where: { id: req.params.id },
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                avatar: true,
+                authProvider: true,
+                createdAt: true,
+                lastLogin: true,
+                isEmailVerified: true,
+                isVerified: true,
+                isAdmin: true,
+                isDeleted: true,
+                deletedAt: true,
+            },
+        });
 
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
 
-        const projects = await Project.find({ author: user._id })
-            .sort({ updatedAt: -1 })
-            .limit(10);
+        const projects = await prisma.project.findMany({
+            where: { authorId: user.id },
+            orderBy: { updatedAt: "desc" },
+            take: 10,
+        });
 
         res.json({
             user,
             projects,
-            projectCount: await Project.countDocuments({ author: user._id }),
+            projectCount: await prisma.project.count({
+                where: { authorId: user.id },
+            }),
         });
     } catch (error) {
         console.error("Admin get user error:", error);
@@ -352,7 +482,7 @@ router.put("/users/:id", async (req, res) => {
         const userId = req.params.id;
 
         // Prevent self-demotion
-        if (userId === req.user._id.toString() && isAdmin === false) {
+        if (userId === req.user.id && isAdmin === false) {
             return res.status(400).json({ 
                 error: "You cannot remove your own admin privileges" 
             });
@@ -363,11 +493,33 @@ router.put("/users/:id", async (req, res) => {
         if (typeof isEmailVerified === "boolean") updateFields.isEmailVerified = isEmailVerified;
         if (typeof isVerified === "boolean") updateFields.isVerified = isVerified;
 
-        const user = await User.findByIdAndUpdate(
-            userId,
-            updateFields,
-            { new: true }
-        ).select("-password -passwordResetToken -emailVerificationToken");
+        const existingUser = await prisma.user.findUnique({
+            where: { id: userId },
+        });
+        if (!existingUser) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const user = await prisma.user.update({
+            where: { id: userId },
+            data: updateFields,
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                avatar: true,
+                authProvider: true,
+                createdAt: true,
+                lastLogin: true,
+                isEmailVerified: true,
+                isVerified: true,
+                isAdmin: true,
+                isDeleted: true,
+                deletedAt: true,
+            },
+        });
 
         if (!user) {
             return res.status(404).json({ error: "User not found" });
@@ -402,13 +554,13 @@ router.post("/users/:id/delete", async (req, res) => {
         }
 
         // Prevent self-deletion
-        if (userId === req.user._id.toString()) {
+        if (userId === req.user.id) {
             return res.status(400).json({ 
                 error: "You cannot delete your own admin account" 
             });
         }
 
-        const user = await User.findById(userId);
+        const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
@@ -417,26 +569,29 @@ router.post("/users/:id/delete", async (req, res) => {
             return res.status(400).json({ error: "User is already deleted" });
         }
 
-        user.isDeleted = true;
-        user.deletedAt = new Date();
-        user.deletedBy = req.user._id;
-        user.isAdmin = false;
-        await user.save();
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: {
+                isDeleted: true,
+                deletedAt: new Date(),
+                deletedById: req.user.id,
+                isAdmin: false,
+            },
+        });
 
-        const adminRecord = await Admin.findOne({ userId, isActive: true });
-        if (adminRecord) {
-            adminRecord.isActive = false;
-            await adminRecord.save();
-        }
+        await prisma.admin.updateMany({
+            where: { userId, isActive: true },
+            data: { isActive: false },
+        });
 
         res.json({
             message: "User soft-deleted successfully",
             user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                isDeleted: user.isDeleted,
-                deletedAt: user.deletedAt,
+                id: updatedUser.id,
+                username: updatedUser.username,
+                email: updatedUser.email,
+                isDeleted: updatedUser.isDeleted,
+                deletedAt: updatedUser.deletedAt,
             },
         });
     } catch (error) {
@@ -451,22 +606,26 @@ router.delete("/users/:id", async (req, res) => {
         const userId = req.params.id;
 
         // Prevent self-deletion
-        if (userId === req.user._id.toString()) {
+        if (userId === req.user.id) {
             return res.status(400).json({ 
                 error: "You cannot delete your own admin account" 
             });
         }
 
-        const user = await User.findById(userId);
+        const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
 
         // Delete all user's projects
-        const deletedProjects = await Project.deleteMany({ author: userId });
+        const deletedProjects = await prisma.project.deleteMany({
+            where: { authorId: userId },
+        });
+
+        await prisma.admin.deleteMany({ where: { userId } });
 
         // Delete user
-        await User.findByIdAndDelete(userId);
+        await prisma.user.delete({ where: { id: userId } });
 
         res.json({
             message: "User and associated projects deleted successfully",
@@ -475,7 +634,7 @@ router.delete("/users/:id", async (req, res) => {
                 username: user.username,
                 email: user.email,
             },
-            deletedProjectsCount: deletedProjects.deletedCount,
+            deletedProjectsCount: deletedProjects.count,
         });
     } catch (error) {
         console.error("Admin delete user error:", error);
@@ -493,12 +652,23 @@ router.get("/projects", async (req, res) => {
         const skip = (page - 1) * limit;
 
         const [projects, total] = await Promise.all([
-            Project.find()
-                .populate("author", "username email firstName lastName")
-                .sort({ updatedAt: -1 })
-                .skip(skip)
-                .limit(limit),
-            Project.countDocuments(),
+            prisma.project.findMany({
+                orderBy: { updatedAt: "desc" },
+                skip,
+                take: limit,
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                },
+            }),
+            prisma.project.count(),
         ]);
 
         res.json({
@@ -519,8 +689,20 @@ router.get("/projects", async (req, res) => {
 // GET /api/admin/projects/:id - Get specific project details
 router.get("/projects/:id", async (req, res) => {
     try {
-        const project = await Project.findById(req.params.id)
-            .populate("author", "username email firstName lastName");
+        const project = await prisma.project.findUnique({
+            where: { id: req.params.id },
+            include: {
+                author: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+        });
 
         if (!project) {
             return res.status(404).json({ error: "Project not found" });
@@ -536,20 +718,22 @@ router.get("/projects/:id", async (req, res) => {
 // DELETE /api/admin/projects/:id - Delete project
 router.delete("/projects/:id", async (req, res) => {
     try {
-        const project = await Project.findById(req.params.id);
+        const project = await prisma.project.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (!project) {
             return res.status(404).json({ error: "Project not found" });
         }
 
-        await Project.findByIdAndDelete(req.params.id);
+        await prisma.project.delete({ where: { id: req.params.id } });
 
         res.json({
             message: "Project deleted successfully",
             deletedProject: {
-                id: project._id,
+                id: project.id,
                 name: project.title,
-                author: project.author,
+                author: project.authorId,
             },
         });
     } catch (error) {
@@ -563,6 +747,10 @@ router.delete("/projects/:id", async (req, res) => {
 // GET /api/admin/stats - Get dashboard statistics
 router.get("/stats", async (req, res) => {
     try {
+        const now = Date.now();
+        const last7Days = new Date(now - 7 * 24 * 60 * 60 * 1000);
+        const last30Days = new Date(now - 30 * 24 * 60 * 60 * 1000);
+
         const [
             totalUsers,
             totalProjects,
@@ -572,74 +760,60 @@ router.get("/stats", async (req, res) => {
             recentProjects,
             userGrowth,
         ] = await Promise.all([
-            // Total counts
-            User.countDocuments(),
-            Project.countDocuments(),
-            User.countDocuments({ isEmailVerified: true }),
-            User.countDocuments({ isAdmin: true }),
-
-            // Recent activity (last 7 days)
-            User.countDocuments({
-                createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-            }),
-            Project.countDocuments({
-                createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-            }),
-
-            // User growth (last 30 days)
-            User.countDocuments({
-                createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-            }),
+            prisma.user.count(),
+            prisma.project.count(),
+            prisma.user.count({ where: { isEmailVerified: true } }),
+            prisma.user.count({ where: { isAdmin: true } }),
+            prisma.user.count({ where: { createdAt: { gte: last7Days } } }),
+            prisma.project.count({ where: { createdAt: { gte: last7Days } } }),
+            prisma.user.count({ where: { createdAt: { gte: last30Days } } }),
         ]);
 
-        // Top users by project count
-        const topUsers = await Project.aggregate([
-            {
-                $group: {
-                    _id: "$author",
-                    projectCount: { $sum: 1 },
-                },
-            },
-            { $sort: { projectCount: -1 } },
-            { $limit: 5 },
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "_id",
-                    foreignField: "_id",
-                    as: "userInfo",
-                },
-            },
-            { $unwind: "$userInfo" },
-            {
-                $project: {
-                    _id: 1,
-                    projectCount: 1,
-                    username: "$userInfo.username",
-                    email: "$userInfo.email",
-                    firstName: "$userInfo.firstName",
-                    lastName: "$userInfo.lastName",
-                },
-            },
-        ]);
+        const topUsersRaw = await prisma.project.groupBy({
+            by: ["authorId"],
+            _count: { _all: true },
+            orderBy: { _count: { _all: "desc" } },
+            take: 5,
+        });
 
-        // Projects by day (last 7 days)
-        const projectsByDay = await Project.aggregate([
-            {
-                $match: {
-                    createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-                },
+        const topUserIds = topUsersRaw.map((row) => row.authorId);
+        const topUserRecords = await prisma.user.findMany({
+            where: { id: { in: topUserIds } },
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                firstName: true,
+                lastName: true,
             },
-            {
-                $group: {
-                    _id: {
-                        $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
-                    },
-                    count: { $sum: 1 },
-                },
-            },
-            { $sort: { _id: 1 } },
-        ]);
+        });
+        const userMap = new Map(topUserRecords.map((user) => [user.id, user]));
+
+        const topUsers = topUsersRaw.map((row) => {
+            const user = userMap.get(row.authorId);
+            return {
+                _id: row.authorId,
+                projectCount: row._count._all,
+                username: user?.username,
+                email: user?.email,
+                firstName: user?.firstName,
+                lastName: user?.lastName,
+            };
+        });
+
+        const projectsByDayRaw = await prisma.$queryRaw`
+            SELECT TO_CHAR(DATE_TRUNC('day', "createdAt"), 'YYYY-MM-DD') AS day,
+                   COUNT(*)::int AS count
+            FROM "Project"
+            WHERE "createdAt" >= ${last7Days}
+            GROUP BY day
+            ORDER BY day ASC
+        `;
+
+        const projectsByDay = projectsByDayRaw.map((row) => ({
+            _id: row.day,
+            count: row.count,
+        }));
 
         res.json({
             overview: {
@@ -676,31 +850,58 @@ router.get("/search", async (req, res) => {
             return res.status(400).json({ error: "Search query must be at least 2 characters" });
         }
 
-        const searchRegex = new RegExp(q, "i");
+        const searchTerm = q.trim();
         const results = {};
 
         if (type === "all" || type === "users") {
-            results.users = await User.find({
-                $or: [
-                    { username: searchRegex },
-                    { email: searchRegex },
-                    { firstName: searchRegex },
-                    { lastName: searchRegex },
-                ],
-            })
-                .select("-password -passwordResetToken -emailVerificationToken")
-                .limit(10);
+            results.users = await prisma.user.findMany({
+                where: {
+                    OR: [
+                        { username: { contains: searchTerm, mode: "insensitive" } },
+                        { email: { contains: searchTerm, mode: "insensitive" } },
+                        { firstName: { contains: searchTerm, mode: "insensitive" } },
+                        { lastName: { contains: searchTerm, mode: "insensitive" } },
+                    ],
+                },
+                take: 10,
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    avatar: true,
+                    authProvider: true,
+                    createdAt: true,
+                    lastLogin: true,
+                    isEmailVerified: true,
+                    isVerified: true,
+                    isAdmin: true,
+                    isDeleted: true,
+                    deletedAt: true,
+                },
+            });
         }
 
         if (type === "all" || type === "projects") {
-            results.projects = await Project.find({
-                $or: [
-                    { title: searchRegex },
-                    { description: searchRegex },
-                ]
-            })
-                .populate("author", "username email")
-                .limit(10);
+            results.projects = await prisma.project.findMany({
+                where: {
+                    OR: [
+                        { title: { contains: searchTerm, mode: "insensitive" } },
+                        { description: { contains: searchTerm, mode: "insensitive" } },
+                    ],
+                },
+                take: 10,
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            email: true,
+                        },
+                    },
+                },
+            });
         }
 
         res.json(results);

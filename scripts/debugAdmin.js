@@ -1,6 +1,4 @@
-import mongoose from "mongoose";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,11 +10,13 @@ dotenv.config();
 
 const debugAdmin = async () => {
     try {
-        await mongoose.connect(process.env.DATABASE_URL || process.env.MONGO_URI);
-        console.log("✅ Connected to MongoDB\n");
+        await prisma.$connect();
+        console.log("✅ Connected to Postgres\n");
 
         // Find all users
-        const allUsers = await User.find().select("username email isAdmin");
+        const allUsers = await prisma.user.findMany({
+            select: { username: true, email: true, isAdmin: true },
+        });
         console.log("📋 All Users in Database:");
         console.log("─".repeat(60));
         if (allUsers.length === 0) {
@@ -28,8 +28,18 @@ const debugAdmin = async () => {
         }
 
         // Find all admin records
-        const allAdmins = await Admin.find()
-            .populate("userId", "username email firstName lastName");
+        const allAdmins = await prisma.admin.findMany({
+            include: {
+                user: {
+                    select: {
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+        });
         
         console.log("\n\n📋 Admin Records in Database:");
         console.log("─".repeat(60));
@@ -37,7 +47,7 @@ const debugAdmin = async () => {
             console.log("❌ No admin records found!");
         } else {
             allAdmins.forEach((admin, i) => {
-                const user = admin.userId;
+                const user = admin.user;
                 console.log(`\n${i + 1}. Admin Record:`);
                 console.log(`   User: ${user.username} (${user.email})`);
                 console.log(`   Role: ${admin.role}`);
@@ -55,9 +65,11 @@ const debugAdmin = async () => {
         console.log("\n" + "─".repeat(60));
         console.log("\n✅ Debug Complete!\n");
 
+        await prisma.$disconnect();
         process.exit(0);
     } catch (error) {
         console.error("❌ Error:", error.message);
+        await prisma.$disconnect();
         process.exit(1);
     }
 };

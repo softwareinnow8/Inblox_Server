@@ -1,5 +1,5 @@
 import express from "express";
-import Project from "../models/Project.js";
+import prisma from "../prismaClient.js";
 import { authenticateToken, optionalAuth } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -15,14 +15,36 @@ router.get("/", optionalAuth, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const projects = await Project.find({ isPublic: true })
-      .populate("author", "username")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .select("-projectData -likedBy -dislikedBy"); // Don't send full project data for listings
+    const projects = await prisma.project.findMany({
+      where: { isPublic: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+        isPublic: true,
+        isShared: true,
+        authorId: true,
+        authorUsername: true,
+        views: true,
+        likes: true,
+        remixCount: true,
+        tags: true,
+        createdAt: true,
+        lastModified: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+      },
+    });
 
-    const total = await Project.countDocuments({ isPublic: true });
+    const total = await prisma.project.count({ where: { isPublic: true } });
 
     res.json({
       projects,
@@ -46,13 +68,32 @@ router.get("/my-projects", authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const projects = await Project.find({ author: req.user._id })
-      .sort({ lastModified: -1 })
-      .skip(skip)
-      .limit(limit)
-      .select("-projectData"); // Don't send full project data for listings
+    const projects = await prisma.project.findMany({
+      where: { authorId: req.user.id },
+      orderBy: { lastModified: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+        isPublic: true,
+        isShared: true,
+        authorId: true,
+        authorUsername: true,
+        views: true,
+        likes: true,
+        remixCount: true,
+        tags: true,
+        createdAt: true,
+        lastModified: true,
+      },
+    });
 
-    const total = await Project.countDocuments({ author: req.user._id });
+    const total = await prisma.project.count({
+      where: { authorId: req.user.id },
+    });
 
     res.json({
       projects,
@@ -73,46 +114,41 @@ router.get("/my-projects", authenticateToken, async (req, res) => {
 router.get("/:id", optionalAuth, async (req, res) => {
   
   try {
-    const project = await Project.findById(req.params.id).populate(
-      "author",
-      "username"
-    );
-
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+      include: {
+        author: {
+          select: { id: true, username: true },
+        },
+      },
+    });
     if (!project) {
       return res.status(404).json({ error: "Project not found" });
     }
 
+    console.log("User:", req.user);
+    console.log("Project owner:", project.authorId);
+
     // Check if project is public or user owns it
     if (
       !project.isPublic &&
-      (!req.user || project.author._id.toString() !== req.user._id.toString())
+      (!req.user || project.authorId !== req.user.id)
     ) {
       return res.status(403).json({ error: "Access denied" });
     }
 
     // Increment view count
-    project.views += 1;
-    await project.save();
+    const updatedProject = await prisma.project.update({
+      where: { id: project.id },
+      data: { views: { increment: 1 } },
+      include: {
+        author: {
+          select: { id: true, username: true },
+        },
+      },
+    });
 
-    const userId = req.user?._id?.toString();
-    const likedBy = project.likedBy || [];
-    const dislikedBy = project.dislikedBy || [];
-
-    const likedByUser = userId
-      ? likedBy.some((id) => id.toString() === userId)
-      : false;
-    const dislikedByUser = userId
-      ? dislikedBy.some((id) => id.toString() === userId)
-      : false;
-
-    const projectResponse = project.toObject();
-    projectResponse.userReaction = likedByUser
-      ? "like"
-      : dislikedByUser
-      ? "dislike"
-      : null;
-
-    res.json(projectResponse);
+    res.json(updatedProject);
   } catch (error) {
     console.error("Get project error:", error);
     res.status(500).json({ error: "Server error" });
@@ -241,28 +277,28 @@ router.post("/", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Project data is required" });
     }
 
-    const project = new Project({
-      title: title || "Untitled Project",
-      description: description || "",
-      projectData,
-      thumbnail,
-      isPublic: isPublic || false,
-      author: req.user._id,
-      authorUsername: req.user.username,
-      tags: tags || [],
+    const project = await prisma.project.create({
+      data: {
+        title: title || "Untitled Project",
+        description: description || "",
+        projectData,
+        thumbnail,
+        isPublic: isPublic || false,
+        authorId: req.user.id,
+        authorUsername: req.user.username,
+        tags: tags || [],
+      },
     });
-
-    await project.save();
 
     res.status(201).json({
       message: "Project created successfully",
       project: {
-        id: project._id,
+        id: project.id,
         title: project.title,
         description: project.description,
         thumbnail: project.thumbnail,
         isPublic: project.isPublic,
-        author: project.author,
+        author: project.authorId,
         authorUsername: project.authorUsername,
         createdAt: project.createdAt,
         lastModified: project.lastModified,
@@ -277,14 +313,16 @@ router.post("/", authenticateToken, async (req, res) => {
 // Update a project (protected route)
 router.put("/:id", authenticateToken, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+    });
 
     if (!project) {
       return res.status(404).json({ error: "Project not found" });
     }
 
     // Check if user owns the project
-    if (project.author.toString() !== req.user._id.toString()) {
+    if (project.authorId !== req.user.id) {
       return res.status(403).json({ error: "Access denied" });
     }
 
@@ -292,24 +330,28 @@ router.put("/:id", authenticateToken, async (req, res) => {
       req.body;
 
     // Update fields if provided
-    if (title !== undefined) project.title = title;
-    if (description !== undefined) project.description = description;
-    if (projectData !== undefined) project.projectData = projectData;
-    if (thumbnail !== undefined) project.thumbnail = thumbnail;
-    if (isPublic !== undefined) project.isPublic = isPublic;
-    if (tags !== undefined) project.tags = tags;
+    const updateData = { lastModified: new Date() };
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (projectData !== undefined) updateData.projectData = projectData;
+    if (thumbnail !== undefined) updateData.thumbnail = thumbnail;
+    if (isPublic !== undefined) updateData.isPublic = isPublic;
+    if (tags !== undefined) updateData.tags = tags;
 
-    await project.save();
+    const updatedProject = await prisma.project.update({
+      where: { id: project.id },
+      data: updateData,
+    });
 
     res.json({
       message: "Project updated successfully",
       project: {
-        id: project._id,
-        title: project.title,
-        description: project.description,
-        thumbnail: project.thumbnail,
-        isPublic: project.isPublic,
-        lastModified: project.lastModified,
+        id: updatedProject.id,
+        title: updatedProject.title,
+        description: updatedProject.description,
+        thumbnail: updatedProject.thumbnail,
+        isPublic: updatedProject.isPublic,
+        lastModified: updatedProject.lastModified,
       },
     });
   } catch (error) {
@@ -321,18 +363,20 @@ router.put("/:id", authenticateToken, async (req, res) => {
 // Delete a project (protected route)
 router.delete("/:id", authenticateToken, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+    });
 
     if (!project) {
       return res.status(404).json({ error: "Project not found" });
     }
 
     // Check if user owns the project
-    if (project.author.toString() !== req.user._id.toString()) {
+    if (project.authorId !== req.user.id) {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    await Project.findByIdAndDelete(req.params.id);
+    await prisma.project.delete({ where: { id: project.id } });
 
     res.json({ message: "Project deleted successfully" });
   } catch (error) {
@@ -344,7 +388,9 @@ router.delete("/:id", authenticateToken, async (req, res) => {
 // Create a copy/remix of a project (protected route)
 router.post("/:id/remix", authenticateToken, async (req, res) => {
   try {
-    const originalProject = await Project.findById(req.params.id);
+    const originalProject = await prisma.project.findUnique({
+      where: { id: req.params.id },
+    });
 
     if (!originalProject) {
       return res.status(404).json({ error: "Project not found" });
@@ -353,36 +399,37 @@ router.post("/:id/remix", authenticateToken, async (req, res) => {
     // Check if original project is public or user owns it
     if (
       !originalProject.isPublic &&
-      originalProject.author.toString() !== req.user._id.toString()
+      originalProject.authorId !== req.user.id
     ) {
       return res.status(403).json({ error: "Cannot remix private project" });
     }
 
     const { title, isRemix = true } = req.body;
 
-    const remixedProject = new Project({
-      title: title || `Remix of ${originalProject.title}`,
-      description: `Remixed from ${originalProject.authorUsername}'s project`,
-      projectData: originalProject.projectData,
-      thumbnail: originalProject.thumbnail,
-      isPublic: false, // Default to private for remixes
-      author: req.user._id,
-      authorUsername: req.user.username,
-      originalProject: originalProject._id,
-      isRemix,
-      tags: originalProject.tags,
+    const remixedProject = await prisma.project.create({
+      data: {
+        title: title || `Remix of ${originalProject.title}`,
+        description: `Remixed from ${originalProject.authorUsername}'s project`,
+        projectData: originalProject.projectData,
+        thumbnail: originalProject.thumbnail,
+        isPublic: false,
+        authorId: req.user.id,
+        authorUsername: req.user.username,
+        originalProjectId: originalProject.id,
+        isRemix,
+        tags: originalProject.tags,
+      },
     });
 
-    await remixedProject.save();
-
-    // Increment remix count on original project
-    originalProject.remixCount += 1;
-    await originalProject.save();
+    await prisma.project.update({
+      where: { id: originalProject.id },
+      data: { remixCount: { increment: 1 } },
+    });
 
     res.status(201).json({
       message: "Project remixed successfully",
       project: {
-        id: remixedProject._id,
+        id: remixedProject.id,
         title: remixedProject.title,
         description: remixedProject.description,
         thumbnail: remixedProject.thumbnail,

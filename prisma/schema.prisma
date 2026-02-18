@@ -1,0 +1,98 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String    @id @default(uuid())
+  username                 String    @unique
+  email                    String    @unique
+  password                 String?
+  firstName                String?
+  lastName                 String?
+  avatar                   String?
+  profilePicture           String?
+  googleId                 String?   @unique
+  authProvider             String    @default("local")
+  isVerified               Boolean   @default(false)
+  isEmailVerified          Boolean   @default(false)
+  emailVerificationToken   String?
+  emailVerificationExpires DateTime?
+  passwordResetToken       String?
+  passwordResetExpires     DateTime?
+  lastLogin                DateTime? @default(now())
+  isAdmin                  Boolean   @default(false)
+  isDeleted                Boolean   @default(false)
+  deletedAt                DateTime?
+  deletedById              String?
+  deletedBy                User?     @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  projects      Project[] @relation("UserProjects")
+  adminRecord   Admin?    @relation("AdminUser")
+  createdAdmins Admin[]   @relation("AdminCreatedBy")
+  deletedUsers  User[]    @relation("UserDeletedBy")
+
+  @@index([email])
+  @@index([username])
+}
+
+model Admin {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  role           String   @default("admin")
+  permissions    Json
+  createdById    String?
+  notes          String   @default("")
+  isActive       Boolean  @default(true)
+  lastAccessedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user      User  @relation("AdminUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("AdminCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([isActive])
+  @@index([role])
+}
+
+model Project {
+  id               String    @id @default(uuid())
+  title            String    @default("Untitled Project")
+  description      String?   @default("")
+  projectData      Json
+  thumbnail        String?
+  isPublic         Boolean   @default(false)
+  isShared         Boolean   @default(false)
+  authorId         String
+  authorUsername   String
+  views            Int       @default(0)
+  likes            Int       @default(0)
+  remixCount       Int       @default(0)
+  originalProjectId String?
+  tags             String[]
+  isRemix          Boolean   @default(false)
+  isCopy           Boolean   @default(false)
+  lastModified     DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  author          User     @relation("UserProjects", fields: [authorId], references: [id], onDelete: Cascade)
+  originalProject Project? @relation("ProjectRemix", fields: [originalProjectId], references: [id], onDelete: SetNull)
+  remixes         Project[] @relation("ProjectRemix")
+
+  @@index([authorId, createdAt])
+  @@index([isPublic, createdAt])
+}

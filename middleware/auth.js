@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
+import prisma from "../prismaClient.js";
+
 dotenv.config();
 
 
@@ -16,7 +17,7 @@ const authenticateToken = async (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.userId);
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
 
         if (!user) {
             return res.status(401).json({ error: "User not found" });
@@ -47,7 +48,7 @@ const optionalAuth = async (req, res, next) => {
 
         if (token) {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            const user = await User.findById(decoded.userId);
+            const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
             if (user && !user.isDeleted) {
                 req.user = user;
             }

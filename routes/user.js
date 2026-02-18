@@ -1,7 +1,6 @@
 import express from "express";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -12,7 +11,9 @@ router.use((req, res, next) => {
 
 // Helper function to check if user is admin
 const checkAdminStatus = async (userId) => {
-	const adminRecord = await Admin.findOne({ userId, isActive: true });
+	const adminRecord = await prisma.admin.findFirst({
+		where: { userId, isActive: true },
+	});
 	return {
 		isAdmin: !!adminRecord,
 		adminRole: adminRecord?.role || null,
@@ -25,7 +26,7 @@ router.get("/profile", authenticateToken, async (req, res) => {
 	try {
 		res.json({
 			user: {
-				id: req.user._id,
+				id: req.user.id,
 				username: req.user.username,
 				email: req.user.email,
 				firstName: req.user.firstName,
@@ -54,16 +55,15 @@ router.put("/profile", authenticateToken, async (req, res) => {
 		if (avatar !== undefined) updateFields.avatar = avatar;
 		if (profilePicture !== undefined) updateFields.profilePicture = profilePicture;
 
-		const updatedUser = await User.findByIdAndUpdate(
-			req.user._id,
-			updateFields,
-			{ new: true }
-		);
+		const updatedUser = await prisma.user.update({
+			where: { id: req.user.id },
+			data: updateFields,
+		});
 
 		res.json({
 			message: "Profile updated successfully",
 			user: {
-				id: updatedUser._id,
+				id: updatedUser.id,
 				username: updatedUser.username,
 				email: updatedUser.email,
 				firstName: updatedUser.firstName,
@@ -94,16 +94,15 @@ router.post("/profile", authenticateToken, async (req, res) => {
 		if (profilePicture !== undefined) updateFields.profilePicture = profilePicture;
 
 
-		const updatedUser = await User.findByIdAndUpdate(
-			req.user._id,
-			updateFields,
-			{ new: true }
-		);
+		const updatedUser = await prisma.user.update({
+			where: { id: req.user.id },
+			data: updateFields,
+		});
 
 		res.json({
 			message: "Profile updated successfully",
 			user: {
-				id: updatedUser._id,
+				id: updatedUser.id,
 				username: updatedUser.username,
 				email: updatedUser.email,
 				firstName: updatedUser.firstName,
@@ -146,7 +145,9 @@ router.get("/me", async (req, res) => {
 
 		// Verify JWT token
 		const decoded = jwt.verify(token, process.env.JWT_SECRET);
-		const user = await User.findById(decoded.userId).select("-password");
+		const user = await prisma.user.findUnique({
+			where: { id: decoded.userId },
+		});
 
 		if (!user) {
 			return res.status(401).json({ user: null, isAuthenticated: false });
@@ -165,11 +166,11 @@ router.get("/me", async (req, res) => {
 		}
 
 		// Check admin status from Admin collection
-		const adminStatus = await checkAdminStatus(user._id);
+		const adminStatus = await checkAdminStatus(user.id);
 
 		res.json({
 			user: {
-				id: user._id,
+				id: user.id,
 				username: user.username,
 				email: user.email,
 				firstName: user.firstName,
