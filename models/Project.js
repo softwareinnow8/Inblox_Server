@@ -48,6 +48,22 @@ const projectSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    dislikes: {
+      type: Number,
+      default: 0,
+    },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    dislikedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     remixCount: {
       type: Number,
       default: 0,
@@ -84,6 +100,8 @@ const projectSchema = new mongoose.Schema(
 // Index for better query performance
 projectSchema.index({ author: 1, createdAt: -1 });
 projectSchema.index({ isPublic: 1, createdAt: -1 });
+projectSchema.index({ likedBy: 1 });
+projectSchema.index({ dislikedBy: 1 });
 projectSchema.index({ title: "text", description: "text" });
 
 // Update lastModified on save

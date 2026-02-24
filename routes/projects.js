@@ -5,7 +5,7 @@ import { authenticateToken, optionalAuth } from "../middleware/auth.js";
 const router = express.Router();
 
 // Get all public projects (no auth required)
-router.get("/", async (req, res) => {
+router.get("/", optionalAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -16,7 +16,7 @@ router.get("/", async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .select("-projectData"); // Don't send full project data for listings
+      .select("-projectData -likedBy -dislikedBy"); // Don't send full project data for listings
 
     const total = await Project.countDocuments({ isPublic: true });
 
@@ -66,15 +66,13 @@ router.get("/my-projects", authenticateToken, async (req, res) => {
 });
 
 // Get a specific project by ID
-router.get("/:id",authenticateToken, async (req, res) => {
+router.get("/:id", optionalAuth, async (req, res) => {
   
   try {
     const project = await Project.findById(req.params.id).populate(
       "author",
       "username"
     );
-    console.log("User:", req.user);
-    console.log("Project owner:", project.author._id.toString());
 
     if (!project) {
       return res.status(404).json({ error: "Project not found" });
@@ -92,9 +90,139 @@ router.get("/:id",authenticateToken, async (req, res) => {
     project.views += 1;
     await project.save();
 
-    res.json(project);
+    const userId = req.user?._id?.toString();
+    const likedBy = project.likedBy || [];
+    const dislikedBy = project.dislikedBy || [];
+
+    const likedByUser = userId
+      ? likedBy.some((id) => id.toString() === userId)
+      : false;
+    const dislikedByUser = userId
+      ? dislikedBy.some((id) => id.toString() === userId)
+      : false;
+
+    const projectResponse = project.toObject();
+    projectResponse.userReaction = likedByUser
+      ? "like"
+      : dislikedByUser
+      ? "dislike"
+      : null;
+
+    res.json(projectResponse);
   } catch (error) {
     console.error("Get project error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Like a public project (protected route)
+router.post("/:id/like", authenticateToken, async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    if (!project.isPublic) {
+      return res.status(403).json({ error: "You can only react to public projects" });
+    }
+
+    if (project.author.toString() === req.user._id.toString()) {
+      return res.status(403).json({ error: "You cannot react to your own project" });
+    }
+
+    project.likedBy = project.likedBy || [];
+    project.dislikedBy = project.dislikedBy || [];
+
+    const userId = req.user._id.toString();
+    const likedIndex = project.likedBy.findIndex((id) => id.toString() === userId);
+    const dislikedIndex = project.dislikedBy.findIndex((id) => id.toString() === userId);
+
+    if (likedIndex !== -1) {
+      project.likedBy.splice(likedIndex, 1);
+    } else {
+      project.likedBy.push(req.user._id);
+      if (dislikedIndex !== -1) {
+        project.dislikedBy.splice(dislikedIndex, 1);
+      }
+    }
+
+    project.likes = project.likedBy.length;
+    project.dislikes = project.dislikedBy.length;
+    await project.save();
+
+    const userReaction = project.likedBy.some((id) => id.toString() === userId)
+      ? "like"
+      : project.dislikedBy.some((id) => id.toString() === userId)
+      ? "dislike"
+      : null;
+
+    res.json({
+      message: userReaction === "like" ? "Project liked" : "Like removed",
+      projectId: project._id,
+      likes: project.likes,
+      dislikes: project.dislikes,
+      userReaction,
+    });
+  } catch (error) {
+    console.error("Like project error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Dislike a public project (protected route)
+router.post("/:id/dislike", authenticateToken, async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    if (!project.isPublic) {
+      return res.status(403).json({ error: "You can only react to public projects" });
+    }
+
+    if (project.author.toString() === req.user._id.toString()) {
+      return res.status(403).json({ error: "You cannot react to your own project" });
+    }
+
+    project.likedBy = project.likedBy || [];
+    project.dislikedBy = project.dislikedBy || [];
+
+    const userId = req.user._id.toString();
+    const likedIndex = project.likedBy.findIndex((id) => id.toString() === userId);
+    const dislikedIndex = project.dislikedBy.findIndex((id) => id.toString() === userId);
+
+    if (dislikedIndex !== -1) {
+      project.dislikedBy.splice(dislikedIndex, 1);
+    } else {
+      project.dislikedBy.push(req.user._id);
+      if (likedIndex !== -1) {
+        project.likedBy.splice(likedIndex, 1);
+      }
+    }
+
+    project.likes = project.likedBy.length;
+    project.dislikes = project.dislikedBy.length;
+    await project.save();
+
+    const userReaction = project.likedBy.some((id) => id.toString() === userId)
+      ? "like"
+      : project.dislikedBy.some((id) => id.toString() === userId)
+      ? "dislike"
+      : null;
+
+    res.json({
+      message: userReaction === "dislike" ? "Project disliked" : "Dislike removed",
+      projectId: project._id,
+      likes: project.likes,
+      dislikes: project.dislikes,
+      userReaction,
+    });
+  } catch (error) {
+    console.error("Dislike project error:", error);
     res.status(500).json({ error: "Server error" });
   }
 });
