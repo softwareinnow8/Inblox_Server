@@ -7,6 +7,7 @@ import { JWT_SECRET } from "../middleware/auth.js";
 import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfirmation } from "../services/emailService.js";
+// import { sendVerificationEmail,sendEmail } from "../services/emailService.js";
 import dotenv from 'dotenv';
 import validatePassword from "../utils/passwordValidator.js";
 dotenv.config();

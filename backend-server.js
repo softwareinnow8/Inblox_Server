@@ -30,6 +30,7 @@ import userRoutes from "./routes/user.js";
 import projectRoutes from "./routes/projects.js";
 import arduinoUploadRouter from "./routes/arduino-upload.js";
 import adminRoutes from "./routes/admin.js";
+import contactRoutes from "./routes/contact.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
 
 // Import Arduino Dependency Manager for on-demand installation
@@ -715,6 +716,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
+app.use("/api/contact", contactRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
@@ -767,6 +769,8 @@ app.get("/", (req, res) => {
       "/api/auth/signup",
       "/api/auth/profile",
       "/api/projects/my-projects",
+      "/api/contact",
+      "/api/contact/my-messages",
       "/api/compile",
       "/api/compile-esp32",
       "/api/health",
@@ -782,7 +786,7 @@ app.get("/", (req, res) => {
 app.use("*", (req, res) => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
   console.log(
-    `Available routes: /api/auth/*, /api/projects/*, /api/compile, /api/compile-esp32, /api/health, /ping`
+    `Available routes: /api/auth/*, /api/projects/*, /api/contact, /api/compile, /api/compile-esp32, /api/health, /ping`
   );
   res.status(404).json({
     error: "Route not found",
@@ -796,6 +800,8 @@ app.use("*", (req, res) => {
       "POST /api/auth/signup",
       "GET /api/auth/profile",
       "GET /api/projects/my-projects",
+      "POST /api/contact",
+      "GET /api/contact/my-messages",
       "POST /api/compile",
       "POST /api/compile-esp32",
     ],

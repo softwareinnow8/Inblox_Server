@@ -495,9 +495,296 @@ const sendPasswordChangeConfirmation = async (email, firstName) => {
   }
 };
 
+// Send contact/support email notification to admin
+const sendContactNotificationEmail = async (contactData) => {
+  try {
+    const { name, email, subject, message, category, userId } = contactData;
+    const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || process.env.ADMIN_EMAIL || FROM_EMAIL;
+    
+    const { data, error } = await resend.emails.send({
+      from: `${APP_NAME} Support <${FROM_EMAIL}>`,
+      to: [SUPPORT_EMAIL],
+      replyTo: email,
+      subject: `[${category.toUpperCase()}] New Support Request: ${subject}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            :root {
+              color-scheme: light;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #f5f7fb;
+              font-family: "Helvetica Neue", Arial, sans-serif;
+              color: #1f2933;
+              line-height: 1.6;
+            }
+            .card {
+              max-width: 640px;
+              margin: 32px auto;
+              background: #ffffff;
+              border-radius: 12px;
+              overflow: hidden;
+              box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+              border: 1px solid #eef1f6;
+            }
+            .header {
+              background: linear-gradient(135deg, #fca72c 0%, #f36c21 100%);
+              color: #ffffff;
+              padding: 28px 32px;
+              text-align: center;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+              font-weight: 700;
+              letter-spacing: 0.3px;
+            }
+            .body {
+              padding: 30px 32px 24px;
+              background: #ffffff;
+            }
+            .info-row {
+              margin: 12px 0;
+              padding: 10px;
+              background: #f9fafb;
+              border-radius: 6px;
+            }
+            .label {
+              font-weight: 700;
+              color: #374151;
+              display: inline-block;
+              min-width: 100px;
+            }
+            .value {
+              color: #111827;
+            }
+            .message-box {
+              margin: 16px 0;
+              padding: 16px;
+              background: #fff4e6;
+              border-left: 4px solid #f7931d;
+              border-radius: 8px;
+              white-space: pre-wrap;
+              word-wrap: break-word;
+            }
+            .footer {
+              margin-top: 24px;
+              padding-top: 16px;
+              border-top: 1px solid #eef1f6;
+              color: #6b7280;
+              font-size: 13px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header">
+              <h1>📧 New Support Request</h1>
+            </div>
+            <div class="body">
+              <div class="info-row">
+                <span class="label">From:</span>
+                <span class="value">${name}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Email:</span>
+                <span class="value">${email}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Category:</span>
+                <span class="value">${category}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Subject:</span>
+                <span class="value">${subject}</span>
+              </div>
+              ${userId ? `<div class="info-row"><span class="label">User ID:</span><span class="value">${userId}</span></div>` : ''}
+              
+              <h3 style="margin-top: 24px; color: #111827;">Message:</h3>
+              <div class="message-box">${message}</div>
+              
+              <div class="footer">
+                <strong>Note:</strong> Reply directly to this email to respond to the user.
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error('Error sending contact notification email:', error);
+      throw error;
+    }
+
+    console.log('Contact notification email sent:', data.id);
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    console.error('Error sending contact notification email:', error);
+    throw error;
+  }
+};
+
+// Send confirmation email to user after contact form submission
+const sendContactConfirmationEmail = async (name, email, subject) => {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: `${APP_NAME} Support <${FROM_EMAIL}>`,
+      to: [email],
+      subject: `We received your message: ${subject}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            :root {
+              color-scheme: light;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #f5f7fb;
+              font-family: "Helvetica Neue", Arial, sans-serif;
+              color: #1f2933;
+              line-height: 1.6;
+            }
+            .card {
+              max-width: 640px;
+              margin: 32px auto;
+              background: #ffffff;
+              border-radius: 12px;
+              overflow: hidden;
+              box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+              border: 1px solid #eef1f6;
+            }
+            .header {
+              background: linear-gradient(135deg, #fca72c 0%, #f36c21 100%);
+              color: #ffffff;
+              padding: 28px 32px;
+              text-align: center;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+              font-weight: 700;
+              letter-spacing: 0.3px;
+            }
+            .body {
+              padding: 30px 32px 24px;
+              background: #ffffff;
+            }
+            p {
+              margin: 0 0 14px;
+              color: #374151;
+              font-size: 15px;
+            }
+            .note {
+              margin: 18px 0;
+              padding: 12px 14px;
+              background: #f0fdf4;
+              border-left: 4px solid #22c55e;
+              border-radius: 8px;
+              color: #166534;
+              font-size: 14px;
+            }
+            .footer {
+              margin-top: 28px;
+              padding: 20px 32px;
+              background: #f9fafb;
+              border-top: 1px solid #eef1f6;
+              color: #6b7280;
+              font-size: 13px;
+              text-align: center;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header">
+              <h1>✅ Message Received</h1>
+            </div>
+            <div class="body">
+              <p>Hi ${name},</p>
+              <p>Thank you for contacting ${APP_NAME} support! We've received your message regarding:</p>
+              <p style="font-weight: 700; color: #111827; margin-left: 12px;">"${subject}"</p>
+              
+              <div class="note">
+                <strong>✓ What happens next?</strong><br/>
+                Our support team will review your message and get back to you within 24-48 hours. For urgent matters, we'll respond as quickly as possible.
+              </div>
+              
+              <p>If you need to add any additional information, feel free to reply to this email.</p>
+              
+              <p style="margin-top: 24px;">Best regards,<br/><strong>${APP_NAME} Support Team</strong></p>
+            </div>
+            <div class="footer">
+              This is an automated confirmation. Please do not reply to this email unless you have additional information to share.
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error('Error sending contact confirmation email:', error);
+      throw error;
+    }
+
+    console.log('Contact confirmation email sent:', data.id);
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    console.error('Error sending contact confirmation email:', error);
+    throw error;
+  }
+};
+
 export {
   sendVerificationEmail,
   sendInviteEmail,
   sendPasswordResetEmail,
   sendPasswordChangeConfirmation,
+  sendContactNotificationEmail,
+  sendContactConfirmationEmail,
 };
+
+
+
+
+
+// import { resend } from "../config/emailClient.js";
+// import { verificationTemplate } from "../templates/verificationTemplate.js";
+
+// const APP_NAME = process.env.APP_NAME || "Inblox";
+// const FROM_EMAIL = process.env.EMAIL_FROM;
+
+// const sendEmail = async ({ to, subject, html, replyTo }) => {
+//   return resend.emails.send({
+//     from: `${APP_NAME} <${FROM_EMAIL}>`,
+//     to: [to],
+//     subject,
+//     html,
+//     replyTo,
+//   });
+// };
+
+// export const sendVerificationEmail = async (email, token, firstName) => {
+//   const url = `${process.env.BACKEND_URL}/api/auth/verify-email/${token}`;
+
+//   const html = verificationTemplate({
+//     firstName,
+//     url,
+//     appName: APP_NAME,
+//   });
+
+//   return sendEmail({
+//     to: email,
+//     subject: "Verify Your Email Address",
+//     html,
+//   });
+// };
