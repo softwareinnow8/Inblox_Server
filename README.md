@@ -11,7 +11,7 @@ Backend API for inBlox with authentication.
 
 ## Environment Variables
 
-- MONGODB_URI: MongoDB connection string
+- DATABASE_URL: MongoDB connection string
 - JWT_SECRET: Secret key for JWT tokens
 - PORT: Server port (default: 3001)
 

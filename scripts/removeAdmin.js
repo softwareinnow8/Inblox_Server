@@ -14,7 +14,7 @@ dotenv.config();
 const removeAdmin = async (email) => {
     try {
         // Connect to MongoDB
-        await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
+        await mongoose.connect(process.env.DATABASE_URL || process.env.MONGO_URI);
         console.log("✅ Connected to MongoDB");
 
         if (!email) {

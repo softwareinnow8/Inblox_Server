@@ -23,7 +23,7 @@ docker run -d \
   -p 8080:8080 \
   -e NODE_ENV=production \
   -e PORT=8080 \
-  -e MONGODB_URI="${MONGODB_URI}" \
+  -e DATABASE_URL="${DATABASE_URL}" \
   -e JWT_SECRET="${JWT_SECRET}" \
   -e GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" \
   -e GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}" \

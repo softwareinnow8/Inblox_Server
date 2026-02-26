@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Test 1: Check environment variables
 echo "1️⃣  Checking required environment variables..."
-REQUIRED_VARS=("MONGODB_URI" "JWT_SECRET" "GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET")
+REQUIRED_VARS=("DATABASE_URL" "JWT_SECRET" "GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET")
 MISSING_VARS=()
 
 for var in "${REQUIRED_VARS[@]}"; do
