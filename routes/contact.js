@@ -1,6 +1,6 @@
 import express from "express";
-import ContactMessage from "../models/ContactMessage.js";
-import { authenticateToken } from "../middleware/auth.js";
+import prisma from "../prismaClient.js";
+import { authenticateToken, optionalAuth } from "../middleware/auth.js";
 import {
   sendContactNotificationEmail,
   sendContactConfirmationEmail,
@@ -13,7 +13,7 @@ router.use((req, res, next) => {
 });
 
 // Public endpoint - Submit contact/support request
-router.post("/", async (req, res) => {
+router.post("/", optionalAuth, async (req, res) => {
   try {
     const { name, email, subject, message, category } = req.body;
 
@@ -40,10 +40,7 @@ router.post("/", async (req, res) => {
     }
 
     // Get user info if authenticated (optional)
-    let userId = null;
-    if (req.user) {
-      userId = req.user.userId;
-    }
+    const userId = req.user?.id || null;
 
     // Get IP address and user agent for tracking
     const ipAddress =
@@ -51,7 +48,8 @@ router.post("/", async (req, res) => {
     const userAgent = req.headers["user-agent"];
 
     // Create contact message
-    const contactMessage = new ContactMessage({
+    const contactMessage = await prisma.contactMessage.create({
+      data: {
       userId,
       name: name.trim(),
       email: email.trim().toLowerCase(),
@@ -60,9 +58,8 @@ router.post("/", async (req, res) => {
       category: category || "general",
       ipAddress,
       userAgent,
+      },
     });
-
-    await contactMessage.save();
 
     // Send notification emails asynchronously (don't block response)
     Promise.all([
@@ -87,7 +84,7 @@ router.post("/", async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Your message has been sent successfully. We'll get back to you soon!",
-      contactId: contactMessage._id,
+      contactId: contactMessage.id,
     });
   } catch (error) {
     console.error("Error submitting contact form:", error);
@@ -100,12 +97,28 @@ router.post("/", async (req, res) => {
 // Get user's own contact messages (requires authentication)
 router.get("/my-messages", authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
-    const messages = await ContactMessage.find({ userId, isDeleted: false })
-      .sort({ createdAt: -1 })
-      .select("-ipAddress -userAgent -adminNotes")
-      .lean();
+    const messages = await prisma.contactMessage.findMany({
+      where: { userId, isDeleted: false },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        email: true,
+        subject: true,
+        message: true,
+        status: true,
+        priority: true,
+        category: true,
+        resolvedAt: true,
+        isDeleted: true,
+        deletedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     res.json({
       success: true,
@@ -124,15 +137,31 @@ router.get("/my-messages", authenticateToken, async (req, res) => {
 router.get("/:messageId", authenticateToken, async (req, res) => {
   try {
     const { messageId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
-    const message = await ContactMessage.findOne({
-      _id: messageId,
+    const message = await prisma.contactMessage.findFirst({
+      where: {
+      id: messageId,
       userId,
       isDeleted: false,
-    })
-      .select("-ipAddress -userAgent -adminNotes")
-      .lean();
+      },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        email: true,
+        subject: true,
+        message: true,
+        status: true,
+        priority: true,
+        category: true,
+        resolvedAt: true,
+        isDeleted: true,
+        deletedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     if (!message) {
       return res.status(404).json({

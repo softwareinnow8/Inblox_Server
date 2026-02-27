@@ -43,9 +43,43 @@ model User {
   adminRecord   Admin?    @relation("AdminUser")
   createdAdmins Admin[]   @relation("AdminCreatedBy")
   deletedUsers  User[]    @relation("UserDeletedBy")
+  contactMessages            ContactMessage[] @relation("ContactMessageUser")
+  resolvedContactMessages    ContactMessage[] @relation("ContactMessageResolvedBy")
+  deletedContactMessages     ContactMessage[] @relation("ContactMessageDeletedBy")
 
   @@index([email])
   @@index([username])
+}
+
+model ContactMessage {
+  id          String   @id @default(uuid())
+  userId      String?
+  name        String
+  email       String
+  subject     String
+  message     String
+  status      String   @default("pending")
+  priority    String   @default("medium")
+  category    String   @default("general")
+  adminNotes  String   @default("")
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  deletedBy   String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user            User? @relation("ContactMessageUser", fields: [userId], references: [id], onDelete: SetNull)
+  resolvedByUser  User? @relation("ContactMessageResolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
+  deletedByUser   User? @relation("ContactMessageDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@index([email, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([isDeleted, createdAt])
 }
 
 model Admin {

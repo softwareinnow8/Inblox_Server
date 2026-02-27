@@ -928,51 +928,77 @@ router.get("/support-messages", async (req, res) => {
         } = req.query;
 
         // Build filter query
-        const filter = {};
-        if (includeDeleted !== "true") filter.isDeleted = false;
-        if (status) filter.status = status;
-        if (priority) filter.priority = priority;
-        if (category) filter.category = category;
+        const where = {};
+        if (includeDeleted !== "true") where.isDeleted = false;
+        if (status) where.status = status;
+        if (priority) where.priority = priority;
+        if (category) where.category = category;
 
         // Calculate pagination
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const sortOrder = order === "asc" ? 1 : -1;
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const skip = (pageNum - 1) * limitNum;
+        const sortOrder = order === "asc" ? "asc" : "desc";
 
         // Get messages with pagination
-        const messages = await ContactMessage.find(filter)
-            .sort({ [sortBy]: sortOrder })
-            .skip(skip)
-            .limit(parseInt(limit))
-            .populate("userId", "username email firstName lastName")
-            .populate("resolvedBy", "username email")
-            .lean();
-
-        // Get total count for pagination
-        const total = await ContactMessage.countDocuments(filter);
-
-        // Get status counts for dashboard
-        const statusCounts = await ContactMessage.aggregate([
-            { $match: includeDeleted === "true" ? {} : { isDeleted: false } },
-            {
-                $group: {
-                    _id: "$status",
-                    count: { $sum: 1 },
+        const [messages, total, statusCounts] = await Promise.all([
+            prisma.contactMessage.findMany({
+                where,
+                orderBy: {
+                    [sortBy]: sortOrder,
                 },
-            },
+                skip,
+                take: limitNum,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                    resolvedByUser: {
+                        select: {
+                            id: true,
+                            username: true,
+                            email: true,
+                        },
+                    },
+                },
+            }),
+            prisma.contactMessage.count({ where }),
+            prisma.contactMessage.groupBy({
+                by: ["status"],
+                where: includeDeleted === "true" ? undefined : { isDeleted: false },
+                _count: {
+                    status: true,
+                },
+            }),
         ]);
+
+        const formattedMessages = messages.map((item) => {
+            const { user, resolvedByUser, ...rest } = item;
+            return {
+                ...rest,
+                userId: user,
+                resolvedBy: resolvedByUser,
+            };
+        });
 
         res.json({
             success: true,
-            messages,
+            messages: formattedMessages,
             pagination: {
-                current: parseInt(page),
-                total: Math.ceil(total / parseInt(limit)),
+                current: pageNum,
+                total: Math.ceil(total / limitNum),
                 totalMessages: total,
-                hasNext: skip + messages.length < total,
-                hasPrev: parseInt(page) > 1,
+                hasNext: skip + formattedMessages.length < total,
+                hasPrev: pageNum > 1,
             },
             statusCounts: statusCounts.reduce((acc, item) => {
-                acc[item._id] = item.count;
+                acc[item.status] = item._count.status;
                 return acc;
             }, {}),
         });
@@ -986,21 +1012,47 @@ router.get("/support-messages", async (req, res) => {
 router.get("/support-messages/:id", async (req, res) => {
     try {
         const { includeDeleted } = req.query;
-        const message = await ContactMessage.findOne({
-            _id: req.params.id,
-            ...(includeDeleted === "true" ? {} : { isDeleted: false }),
-        })
-            .populate("userId", "username email firstName lastName avatar")
-            .populate("resolvedBy", "username email firstName lastName")
-            .lean();
+        const message = await prisma.contactMessage.findFirst({
+            where: {
+                id: req.params.id,
+                ...(includeDeleted === "true" ? {} : { isDeleted: false }),
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        avatar: true,
+                    },
+                },
+                resolvedByUser: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+        });
 
         if (!message) {
             return res.status(404).json({ error: "Message not found" });
         }
 
+        const { user, resolvedByUser, ...rest } = message;
+
         res.json({
             success: true,
-            message,
+            message: {
+                ...rest,
+                userId: user,
+                resolvedBy: resolvedByUser,
+            },
         });
     } catch (error) {
         console.error("Error fetching support message:", error);
@@ -1032,26 +1084,46 @@ router.patch("/support-messages/:id/status", async (req, res) => {
 
         // If marking as resolved, record who resolved it and when
         if (status === "resolved" || status === "closed") {
-            updateData.resolvedBy = req.user.userId;
+            updateData.resolvedBy = req.user.id;
             updateData.resolvedAt = new Date();
         }
 
-        const message = await ContactMessage.findByIdAndUpdate(
-            id,
-            updateData,
-            { new: true, runValidators: true }
-        )
-            .populate("userId", "username email")
-            .populate("resolvedBy", "username email");
-
-        if (!message) {
+        const existing = await prisma.contactMessage.findUnique({ where: { id } });
+        if (!existing) {
             return res.status(404).json({ error: "Message not found" });
         }
+
+        const message = await prisma.contactMessage.update({
+            where: { id },
+            data: updateData,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+                resolvedByUser: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        const { user, resolvedByUser, ...rest } = message;
 
         res.json({
             success: true,
             message: "Status updated successfully",
-            data: message,
+            data: {
+                ...rest,
+                userId: user,
+                resolvedBy: resolvedByUser,
+            },
         });
     } catch (error) {
         console.error("Error updating message status:", error);
@@ -1076,22 +1148,42 @@ router.patch("/support-messages/:id/priority", async (req, res) => {
             });
         }
 
-        const message = await ContactMessage.findByIdAndUpdate(
-            id,
-            { priority },
-            { new: true, runValidators: true }
-        )
-            .populate("userId", "username email")
-            .populate("resolvedBy", "username email");
-
-        if (!message) {
+        const existing = await prisma.contactMessage.findUnique({ where: { id } });
+        if (!existing) {
             return res.status(404).json({ error: "Message not found" });
         }
+
+        const message = await prisma.contactMessage.update({
+            where: { id },
+            data: { priority },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+                resolvedByUser: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        const { user, resolvedByUser, ...rest } = message;
 
         res.json({
             success: true,
             message: "Priority updated successfully",
-            data: message,
+            data: {
+                ...rest,
+                userId: user,
+                resolvedBy: resolvedByUser,
+            },
         });
     } catch (error) {
         console.error("Error updating message priority:", error);
@@ -1105,22 +1197,42 @@ router.patch("/support-messages/:id/notes", async (req, res) => {
         const { id } = req.params;
         const { adminNotes } = req.body;
 
-        const message = await ContactMessage.findByIdAndUpdate(
-            id,
-            { adminNotes: adminNotes || "" },
-            { new: true, runValidators: true }
-        )
-            .populate("userId", "username email")
-            .populate("resolvedBy", "username email");
-
-        if (!message) {
+        const existing = await prisma.contactMessage.findUnique({ where: { id } });
+        if (!existing) {
             return res.status(404).json({ error: "Message not found" });
         }
+
+        const message = await prisma.contactMessage.update({
+            where: { id },
+            data: { adminNotes: adminNotes || "" },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+                resolvedByUser: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        const { user, resolvedByUser, ...rest } = message;
 
         res.json({
             success: true,
             message: "Notes updated successfully",
-            data: message,
+            data: {
+                ...rest,
+                userId: user,
+                resolvedBy: resolvedByUser,
+            },
         });
     } catch (error) {
         console.error("Error updating admin notes:", error);
@@ -1131,20 +1243,20 @@ router.patch("/support-messages/:id/notes", async (req, res) => {
 //  /api/admin/support-messages/:id - Delete a support message (Super Admin only) (soft delete)
 router.post("/support-messages/:id", authenticateSuperAdmin, async (req, res) => {
     try {
-        const message = await ContactMessage.findByIdAndUpdate(
-            req.params.id,
-            {
-                isDeleted: true,
-                deletedAt: new Date(),
-                deletedBy: req.user._id,
-                status: "closed",
-            },
-            { new: true }
-        );
-
-        if (!message) {
+        const existing = await prisma.contactMessage.findUnique({ where: { id: req.params.id } });
+        if (!existing) {
             return res.status(404).json({ error: "Message not found" });
         }
+
+        const message = await prisma.contactMessage.update({
+            where: { id: req.params.id },
+            data: {
+                isDeleted: true,
+                deletedAt: new Date(),
+                deletedBy: req.user.id,
+                status: "closed",
+            },
+        });
 
         res.json({
             success: true,
@@ -1171,28 +1283,24 @@ router.get("/support-messages/stats/dashboard", async (req, res) => {
             categoryStats,
             priorityStats,
         ] = await Promise.all([
-            ContactMessage.countDocuments({ isDeleted: false }),
-            ContactMessage.countDocuments({ status: "pending", isDeleted: false }),
-            ContactMessage.countDocuments({ status: "resolved", isDeleted: false }),
-            ContactMessage.countDocuments({ createdAt: { $gte: last30Days }, isDeleted: false }),
-            ContactMessage.aggregate([
-                { $match: { isDeleted: false } },
-                {
-                    $group: {
-                        _id: "$category",
-                        count: { $sum: 1 },
-                    },
+            prisma.contactMessage.count({ where: { isDeleted: false } }),
+            prisma.contactMessage.count({ where: { status: "pending", isDeleted: false } }),
+            prisma.contactMessage.count({ where: { status: "resolved", isDeleted: false } }),
+            prisma.contactMessage.count({ where: { createdAt: { gte: last30Days }, isDeleted: false } }),
+            prisma.contactMessage.groupBy({
+                by: ["category"],
+                where: { isDeleted: false },
+                _count: {
+                    category: true,
                 },
-            ]),
-            ContactMessage.aggregate([
-                { $match: { isDeleted: false } },
-                {
-                    $group: {
-                        _id: "$priority",
-                        count: { $sum: 1 },
-                    },
+            }),
+            prisma.contactMessage.groupBy({
+                by: ["priority"],
+                where: { isDeleted: false },
+                _count: {
+                    priority: true,
                 },
-            ]),
+            }),
         ]);
 
         res.json({
@@ -1203,11 +1311,11 @@ router.get("/support-messages/stats/dashboard", async (req, res) => {
                 resolved: resolvedMessages,
                 last30Days: recentMessages,
                 categories: categoryStats.reduce((acc, item) => {
-                    acc[item._id] = item.count;
+                    acc[item.category] = item._count.category;
                     return acc;
                 }, {}),
                 priorities: priorityStats.reduce((acc, item) => {
-                    acc[item._id] = item.count;
+                    acc[item.priority] = item._count.priority;
                     return acc;
                 }, {}),
             },
