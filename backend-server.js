@@ -31,6 +31,7 @@ import projectRoutes from "./routes/projects.js";
 import arduinoUploadRouter from "./routes/arduino-upload.js";
 import adminRoutes from "./routes/admin.js";
 import contactRoutes from "./routes/contact.js";
+import sendRoutes from "./routes/send.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
 
 // Import Arduino Dependency Manager for on-demand installation
@@ -717,6 +718,7 @@ app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
 app.use("/api/contact", contactRoutes);
+app.use("/api/send", sendRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
