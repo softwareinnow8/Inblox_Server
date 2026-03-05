@@ -7,6 +7,10 @@ import {
 } from "../services/emailService.js";
 
 const router = express.Router();
+router.use((req, res, next) => {
+  console.log(`[ROUTE contact] ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 // Public endpoint - Submit contact/support request
 router.post("/", async (req, res) => {

@@ -3,6 +3,11 @@ import { SerialPort } from 'serialport';
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+    console.log(`[ROUTE hardware] ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 // Get available serial ports
 router.get('/ports', async (req, res) => {
     try {

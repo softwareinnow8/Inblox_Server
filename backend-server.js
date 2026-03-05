@@ -24,6 +24,14 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
 
+mongoose.set("debug", (collectionName, methodName, query, doc) => {
+  console.log(
+    `[DB OP] ${collectionName}.${methodName}`,
+    JSON.stringify({ query, doc })
+  );
+});
+processLogger();
+
 // Import routes
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/user.js";
@@ -31,7 +39,9 @@ import projectRoutes from "./routes/projects.js";
 import arduinoUploadRouter from "./routes/arduino-upload.js";
 import adminRoutes from "./routes/admin.js";
 import contactRoutes from "./routes/contact.js";
+import { adminCustomBlockRoutes, publicCustomBlockRoutes } from "./routes/custom-blocks.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
+import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
@@ -99,6 +109,7 @@ app.use(cookieParser());
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+app.use(requestLogger);
 
 // Serve static files from parent directory for compilation test
 app.use('/static', express.static(path.join(__dirname, '..', 'static')));
@@ -718,6 +729,8 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
 app.use("/api/contact", contactRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
+app.use("/api/admin/custom-blocks", adminCustomBlockRoutes);
+app.use("/api/custom-blocks", publicCustomBlockRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token

@@ -9,10 +9,22 @@ import { sendInviteEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+    console.log(`[ROUTE admin] ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 // ✅ ALL routes protected by authenticateAdmin middleware
 router.use(authenticateAdmin);
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
+
+const getDefaultPermissionsForRole = (role) => ({
+    canManageUsers: role !== "editor",
+    canManageProjects: true,
+    canManageAdmins: role === "super-admin",
+    canViewStats: role !== "editor",
+});
 
 const buildUsernameBase = (email) => {
     const localPart = email.split("@")[0] || "user";
@@ -81,6 +93,10 @@ router.post("/admins", authenticateSuperAdmin, async (req, res) => {
             existingAdmin.role = role;
             existingAdmin.notes = notes;
             existingAdmin.createdBy = req.user._id;
+            existingAdmin.permissions = {
+                ...getDefaultPermissionsForRole(role),
+                ...(existingAdmin.permissions || {}),
+            };
             admin = await existingAdmin.save();
         } else {
             admin = await Admin.create({
@@ -88,12 +104,7 @@ router.post("/admins", authenticateSuperAdmin, async (req, res) => {
                 role,
                 notes,
                 createdBy: req.user._id,
-                permissions: {
-                    canManageUsers: true,
-                    canManageProjects: true,
-                    canManageAdmins: role === "super-admin",
-                    canViewStats: true,
-                },
+                permissions: getDefaultPermissionsForRole(role),
             });
         }
 
@@ -134,7 +145,13 @@ router.put("/admins/:id", authenticateSuperAdmin, async (req, res) => {
         }
 
         // Update fields
-        if (role) admin.role = role;
+        if (role) {
+            admin.role = role;
+            admin.permissions = {
+                ...getDefaultPermissionsForRole(role),
+                ...(admin.permissions || {}),
+            };
+        }
         if (permissions) {
             admin.permissions = { ...admin.permissions, ...permissions };
         }

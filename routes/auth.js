@@ -13,6 +13,10 @@ import validatePassword from "../utils/passwordValidator.js";
 dotenv.config();
 
 const router = express.Router();
+router.use((req, res, next) => {
+  console.log(`[ROUTE auth] ${req.method} ${req.originalUrl}`);
+  next();
+});
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || "http://localhost:3000/auth/google/callback";

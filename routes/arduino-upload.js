@@ -9,6 +9,11 @@ import util from 'util';
 const router = express.Router();
 const execPromise = util.promisify(exec);
 
+router.use((req, res, next) => {
+    console.log(`[ROUTE arduino-upload] ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 // Board configurations
 const BOARD_CONFIGS = {
     'arduino-mega': {

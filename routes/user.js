@@ -5,6 +5,10 @@ import Admin from "../models/Admin.js";
 import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
+router.use((req, res, next) => {
+	console.log(`[ROUTE user] ${req.method} ${req.originalUrl}`);
+	next();
+});
 
 // Helper function to check if user is admin
 const checkAdminStatus = async (userId) => {

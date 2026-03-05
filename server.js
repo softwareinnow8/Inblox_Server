@@ -27,9 +27,18 @@ import hardwareRoutes from "./routes/hardware.js";
 import adminRoutes from "./routes/admin.js";
 import contactRoutes from "./routes/contact.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
+import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 
 const app = express();
 const server = http.createServer(app);
+
+mongoose.set("debug", (collectionName, methodName, query, doc) => {
+  console.log(
+    `[DB OP] ${collectionName}.${methodName}`,
+    JSON.stringify({ query, doc })
+  );
+});
+processLogger();
 
 // Middleware
 // Set security headers for OAuth compatibility
@@ -70,6 +79,7 @@ app.use(express.json({ limit: "25mb" }));
 app.use(cookieParser()); // ✅ Parse cookies from requests
 
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+app.use(requestLogger);
 
 // MongoDB connection is now handled by db.js (centralized)
 
@@ -87,7 +97,6 @@ const io = new Server(server, {
 
 // Hardware communication via Socket.IO
 import { SerialPort } from "serialport";
-import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 let activePort = null;
 
 io.on("connection", (socket) => {

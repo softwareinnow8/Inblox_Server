@@ -3,6 +3,10 @@ import Project from "../models/Project.js";
 import { authenticateToken, optionalAuth } from "../middleware/auth.js";
 
 const router = express.Router();
+router.use((req, res, next) => {
+  console.log(`[ROUTE projects] ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 // Get all public projects (no auth required)
 router.get("/", optionalAuth, async (req, res) => {
