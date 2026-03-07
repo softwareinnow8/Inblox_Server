@@ -94,7 +94,7 @@ const sanitizeImportPayload = (body, fallbackBoard) => {
         name: safeName,
         category: safeCategory,
         blockText: safeBlockText,
-        blockType: ['command', 'reporter', 'hat'].includes(base.blockType) ? base.blockType : 'command',
+        blockType: ['command', 'reporter', 'hat','boolean'].includes(base.blockType) ? base.blockType : 'command',
         arguments: Array.isArray(base.arguments) ? base.arguments.filter(arg => arg?.name) : [],
         isPublished: Boolean(base.isPublished)
     };
@@ -111,7 +111,7 @@ const validatePayload = async (payload, options = {}) => {
     if (!payload.name) return 'name is required';
     if (!payload.category) return 'category is required';
     if (!payload.blockText) return 'blockText is required';
-    if (!['command', 'reporter', 'hat'].includes(payload.blockType)) return 'blockType is invalid';
+    if (!['command', 'reporter', 'hat', 'boolean'].includes(payload.blockType)) return 'blockType is invalid';
 
     for (const argument of payload.arguments) {
         if (!argument.name) return 'Each argument requires a name';

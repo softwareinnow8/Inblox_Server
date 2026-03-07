@@ -20,7 +20,7 @@ const customBlockSchema = new mongoose.Schema(
         name: {type: String, required: true, trim: true, index: true},
         category: {type: String, required: true, trim: true},
         color: {type: String, required: true, default: '#FF9500'},
-        blockType: {type: String, required: true, enum: ['command', 'reporter', 'hat']},
+        blockType: {type: String, required: true, enum: ['command', 'reporter', 'hat', 'boolean']},
         blockText: {type: String, required: true, trim: true},
         arguments: {type: [customBlockArgumentSchema], default: []},
         globalCode: {type: String, default: ''},
