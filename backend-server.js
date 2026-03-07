@@ -40,6 +40,8 @@ import arduinoUploadRouter from "./routes/arduino-upload.js";
 import adminRoutes from "./routes/admin.js";
 import contactRoutes from "./routes/contact.js";
 import { adminCustomBlockRoutes, publicCustomBlockRoutes } from "./routes/custom-blocks.js";
+import { adminBoardCatalogRoutes, publicBoardCatalogRoutes } from "./routes/board-catalog.js";
+import { adminBuiltInBoardBlockRoutes, publicBuiltInBoardBlockRoutes } from "./routes/built-in-board-blocks.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 
@@ -730,7 +732,11 @@ app.use("/api/arduino", arduinoUploadRouter);
 app.use("/api/contact", contactRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
 app.use("/api/admin/custom-blocks", adminCustomBlockRoutes);
+app.use("/api/admin/boards", adminBoardCatalogRoutes);
+app.use("/api/admin/built-in-board-blocks", adminBuiltInBoardBlockRoutes);
 app.use("/api/custom-blocks", publicCustomBlockRoutes);
+app.use("/api/boards", publicBoardCatalogRoutes);
+app.use("/api/built-in-board-blocks", publicBuiltInBoardBlockRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token

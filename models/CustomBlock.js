@@ -15,7 +15,6 @@ const customBlockSchema = new mongoose.Schema(
         board: {
             type: String,
             required: true,
-            enum: ['uno-x', 'arduino-uno', 'arduino-nano', 'arduino-mega', 'esp32-s3', 'iot-airo'],
             trim: true
         },
         name: {type: String, required: true, trim: true, index: true},

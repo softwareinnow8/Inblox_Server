@@ -1,17 +1,11 @@
 import express from 'express';
 import CustomBlock from '../models/CustomBlock.js';
+import BuiltInBoardBlock from '../models/BuiltInBoardBlock.js';
 import requireAdmin from '../middleware/requireAdmin.js';
+import {getBoardCatalog, getBoardIdSet} from '../utils/board-catalog.js';
 
 const adminCustomBlockRoutes = express.Router();
 const publicCustomBlockRoutes = express.Router();
-const SUPPORTED_BOARDS = [
-    {value: 'uno-x', label: 'UNO X'},
-    {value: 'arduino-uno', label: 'Arduino Uno'},
-    {value: 'arduino-nano', label: 'Arduino Nano'},
-    {value: 'arduino-mega', label: 'Arduino Mega'},
-    {value: 'esp32-s3', label: 'ESP32 S3'},
-    {value: 'iot-airo', label: 'IOT Airo'}
-];
 
 adminCustomBlockRoutes.use((req, res, next) => {
     console.log(`[ROUTE admin-custom-blocks] ${req.method} ${req.originalUrl}`);
@@ -79,9 +73,39 @@ const sanitizePayload = (body) => ({
     isPublished: Boolean(body.isPublished)
 });
 
-const validatePayload = (payload) => {
+const buildSignature = (block) => [
+    (block?.board || '').trim().toLowerCase(),
+    (block?.name || '').trim().toLowerCase(),
+    (block?.category || '').trim().toLowerCase(),
+    (block?.blockType || '').trim().toLowerCase(),
+    (block?.blockText || '').trim().toLowerCase()
+].join('::');
+
+const sanitizeImportPayload = (body, fallbackBoard) => {
+    const base = sanitizePayload(body || {});
+    const safeBoard = base.board || fallbackBoard;
+    const safeName = base.name || `${body?.title || 'Migrated Block'}`.trim() || 'Migrated Block';
+    const safeCategory = base.category || 'Legacy';
+    const safeBlockText = base.blockText || `${body?.description || safeName}`.trim() || safeName;
+
+    return {
+        ...base,
+        board: safeBoard,
+        name: safeName,
+        category: safeCategory,
+        blockText: safeBlockText,
+        blockType: ['command', 'reporter', 'hat'].includes(base.blockType) ? base.blockType : 'command',
+        arguments: Array.isArray(base.arguments) ? base.arguments.filter(arg => arg?.name) : [],
+        isPublished: Boolean(base.isPublished)
+    };
+};
+
+const validatePayload = async (payload, options = {}) => {
+    const {strictCodeValidation = true} = options;
+
     if (!payload.board) return 'board is required';
-    if (!SUPPORTED_BOARDS.map(item => item.value).includes(payload.board)) {
+    const boardIdSet = await getBoardIdSet();
+    if (!boardIdSet.has(payload.board)) {
         return 'board is invalid';
     }
     if (!payload.name) return 'name is required';
@@ -92,18 +116,27 @@ const validatePayload = (payload) => {
     for (const argument of payload.arguments) {
         if (!argument.name) return 'Each argument requires a name';
         if (!['number', 'string', 'dropdown'].includes(argument.type)) {
-            return `Invalid argument type for ${argument.name}`;
+            if (strictCodeValidation) {
+                return `Invalid argument type for ${argument.name}`;
+            }
+            argument.type = 'string';
         }
         if (argument.type === 'dropdown' && (!argument.options || argument.options.length === 0)) {
-            return `Dropdown argument ${argument.name} requires options`;
+            if (strictCodeValidation) {
+                return `Dropdown argument ${argument.name} requires options`;
+            }
+            argument.type = 'string';
+            argument.options = [];
         }
     }
 
-    const duplicateCodeError = validateDuplicateCodeSections(payload);
-    if (duplicateCodeError) return duplicateCodeError;
+    if (strictCodeValidation) {
+        const duplicateCodeError = validateDuplicateCodeSections(payload);
+        if (duplicateCodeError) return duplicateCodeError;
 
-    const placeholderError = validatePlaceholders(payload);
-    if (placeholderError) return placeholderError;
+        const placeholderError = validatePlaceholders(payload);
+        if (placeholderError) return placeholderError;
+    }
 
     return null;
 };
@@ -122,13 +155,14 @@ adminCustomBlockRoutes.get('/', requireAdmin(), async (req, res) => {
 
 adminCustomBlockRoutes.get('/boards', requireAdmin(), async (req, res) => {
     try {
+        const catalogBoards = await getBoardCatalog();
         const distinctBoards = await CustomBlock.distinct('board', {board: {$exists: true, $ne: ''}});
         const values = Array.from(new Set([
-            ...SUPPORTED_BOARDS.map(item => item.value),
+            ...catalogBoards.map(item => item.value),
             ...(distinctBoards || []).map(item => `${item}`.trim()).filter(Boolean)
         ]));
 
-        const labelMap = new Map(SUPPORTED_BOARDS.map(item => [item.value, item.label]));
+        const labelMap = new Map(catalogBoards.map(item => [item.value, item.label]));
         const boards = values.map(value => ({
             value,
             label: labelMap.get(value) || value
@@ -141,10 +175,34 @@ adminCustomBlockRoutes.get('/boards', requireAdmin(), async (req, res) => {
     }
 });
 
+adminCustomBlockRoutes.get('/categories', requireAdmin(), async (req, res) => {
+    try {
+        const board = `${req.query.board || ''}`.trim();
+
+        const customQuery = board ? {board} : {};
+        const builtInQuery = board ? {isActive: true, board} : {isActive: true};
+
+        const [customCategories, builtInHeadings] = await Promise.all([
+            CustomBlock.distinct('category', customQuery),
+            BuiltInBoardBlock.distinct('heading', builtInQuery)
+        ]);
+
+        const categories = Array.from(new Set([
+            ...(customCategories || []).map(item => `${item || ''}`.trim()),
+            ...(builtInHeadings || []).map(item => `${item || ''}`.trim())
+        ].filter(Boolean))).sort((left, right) => left.localeCompare(right));
+
+        return res.json({categories, total: categories.length});
+    } catch (error) {
+        console.error('Failed to fetch custom block categories:', error);
+        return res.status(500).json({error: 'Failed to fetch categories'});
+    }
+});
+
 adminCustomBlockRoutes.post('/', requireAdmin(), async (req, res) => {
     try {
         const payload = sanitizePayload(req.body || {});
-        const validationError = validatePayload(payload);
+        const validationError = await validatePayload(payload);
         if (validationError) {
             return res.status(400).json({error: validationError});
         }
@@ -165,6 +223,72 @@ adminCustomBlockRoutes.post('/', requireAdmin(), async (req, res) => {
     }
 });
 
+adminCustomBlockRoutes.post('/import-legacy', requireAdmin(), async (req, res) => {
+    try {
+        const incomingBlocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
+        if (!incomingBlocks.length) {
+            return res.json({message: 'No blocks provided for import', created: 0, skipped: 0, errors: []});
+        }
+
+        const boardCatalog = await getBoardCatalog();
+        const boardIdSet = new Set(boardCatalog.map(item => item.value));
+        const fallbackBoard = boardCatalog[0]?.value || 'arduino-uno';
+
+        const existingBlocks = await CustomBlock.find({}).lean();
+        const knownSignatures = new Set(existingBlocks.map(buildSignature));
+
+        let created = 0;
+        let skipped = 0;
+        const errors = [];
+
+        for (let index = 0; index < incomingBlocks.length; index += 1) {
+            try {
+                const payload = sanitizeImportPayload(incomingBlocks[index], fallbackBoard);
+                if (!boardIdSet.has(payload.board)) payload.board = fallbackBoard;
+
+                const validationError = await validatePayload(payload, {strictCodeValidation: false});
+                if (validationError) {
+                    skipped += 1;
+                    errors.push({index, reason: validationError});
+                    continue;
+                }
+
+                const signature = buildSignature(payload);
+                if (knownSignatures.has(signature)) {
+                    skipped += 1;
+                    continue;
+                }
+
+                const latest = await CustomBlock.findOne({name: payload.name}).sort({version: -1}).lean();
+                const version = latest ? latest.version + 1 : 1;
+
+                await CustomBlock.create({
+                    ...payload,
+                    version,
+                    createdAt: new Date()
+                });
+
+                knownSignatures.add(signature);
+                created += 1;
+            } catch (entryError) {
+                skipped += 1;
+                errors.push({index, reason: entryError.message || 'Unknown import error'});
+            }
+        }
+
+        return res.json({
+            message: 'Legacy block import completed',
+            total: incomingBlocks.length,
+            created,
+            skipped,
+            errors
+        });
+    } catch (error) {
+        console.error('Failed to import legacy blocks:', error);
+        return res.status(500).json({error: 'Failed to import legacy blocks'});
+    }
+});
+
 adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
     try {
         const existing = await CustomBlock.findById(req.params.id);
@@ -173,7 +297,7 @@ adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
         }
 
         const payload = sanitizePayload(req.body || {});
-        const validationError = validatePayload(payload);
+        const validationError = await validatePayload(payload);
         if (validationError) {
             return res.status(400).json({error: validationError});
         }
