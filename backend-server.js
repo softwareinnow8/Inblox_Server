@@ -26,6 +26,16 @@ import connectDB from "./db.js";
 const execAsync = promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 8080; // AWS-friendly default
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const ENABLE_VERBOSE_LOGS = !IS_PRODUCTION || process.env.ENABLE_VERBOSE_LOGS === "true";
+if (!IS_PRODUCTION || process.env.ENABLE_DB_DEBUG === "true") {
+  mongoose.set("debug", (collectionName, methodName, query, doc) => {
+    console.log(
+      `[DB OP] ${collectionName}.${methodName}`,
+      JSON.stringify({ query, doc })
+    );
+  });
+}
 
 // Trust proxy headers (required behind Caddy/ALB to detect HTTPS/IP correctly)
 app.set("trust proxy", true);
@@ -108,49 +118,60 @@ import dependencyManager from "./arduino-dependency-manager.js";
  */
 function resolveArduinoCliPath() {
   const isWindows = os.platform() === "win32";
-  
-  // Default to PATH
-  let arduinoCliPath = "arduino-cli";
-  
-  // Try common installation paths
-  const possiblePaths = isWindows 
+
+  const envCliPath = process.env.ARDUINO_CLI_PATH?.trim();
+  if (envCliPath) {
+    if (envCliPath === "arduino-cli" || fs.existsSync(envCliPath)) {
+      return envCliPath;
+    }
+    console.warn(`⚠️ ARDUINO_CLI_PATH is set but not found: ${envCliPath}`);
+  }
+
+  const possiblePaths = isWindows
     ? [
         "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
-        "C:\\arduino-cli\\arduino-cli.exe"
+        "C:\\arduino-cli\\arduino-cli.exe",
       ]
     : [
+        "/opt/arduino-cli/arduino-cli",
         "/opt/render/project/src/arduino-cli/arduino-cli",
         "/usr/local/bin/arduino-cli",
-        "/usr/bin/arduino-cli"
+        "/usr/bin/arduino-cli",
       ];
-  
+
   for (const testPath of possiblePaths) {
     if (fs.existsSync(testPath)) {
-      arduinoCliPath = testPath;
-      break;
+      return testPath;
     }
   }
-  
-  return arduinoCliPath;
+
+  return "arduino-cli";
 }
 
 /**
  * Resolve Arduino config flag based on environment
  */
 function resolveArduinoConfigFlag() {
-  // Check for Render.com specific config location
-  const renderConfigPath = "/opt/render/project/src/.arduino15/arduino-cli.yaml";
-  if (fs.existsSync(renderConfigPath)) {
-    return `--config-file "${renderConfigPath}"`;
+  const envConfigPath = process.env.ARDUINO_CONFIG_FILE?.trim();
+  if (envConfigPath) {
+    if (fs.existsSync(envConfigPath)) {
+      return `--config-file "${envConfigPath}"`;
+    }
+    console.warn(`⚠️ ARDUINO_CONFIG_FILE is set but not found: ${envConfigPath}`);
   }
-  
-  // Check for custom config in project directory
-  const projectConfigPath = path.join(__dirname, ".arduino15", "arduino-cli.yaml");
-  if (fs.existsSync(projectConfigPath)) {
-    return `--config-file "${projectConfigPath}"`;
+
+  const knownConfigPaths = [
+    "/opt/.arduino15/arduino-cli.yaml",
+    "/opt/render/project/src/.arduino15/arduino-cli.yaml",
+    path.join(__dirname, ".arduino15", "arduino-cli.yaml"),
+  ];
+
+  for (const configPath of knownConfigPaths) {
+    if (fs.existsSync(configPath)) {
+      return `--config-file "${configPath}"`;
+    }
   }
-  
-  // Use default config (no flag needed)
+
   return "";
 }
 
@@ -270,13 +291,13 @@ app.options("/api/compile", cors());
 // Arduino Compiler Endpoint - MUST be before catch-all route
 app.post("/api/compile", compileLimiter, async (req, res) => {
   let { code, board, boardType = "arduino-uno" } = req.body;
-   // ✅ ADD THIS LOGGING
-  console.log('📝 Received code from frontend:');
-  console.log('════════════════════════════════════════');
-  console.log(code);
-  console.log('════════════════════════════════════════');
-  console.log('📊 Code length:', code.length);
-  console.log('📊 Line count:', code.split('\n').length);
+  if (ENABLE_VERBOSE_LOGS && typeof code === "string") {
+    console.log("📝 Compile request metadata", {
+      boardType,
+      codeLength: code.length,
+      lineCount: code.split("\n").length,
+    });
+  }
   
   
   // Map boardType to FQBN if board not provided
@@ -304,10 +325,11 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
     fs.mkdirSync(sketchPath, { recursive: true });
     fs.writeFileSync(sketchFile, code);
 
-      // ✅ ADD THIS TOO - Save the problematic sketch for inspection
-    const debugSketchPath = '/var/www/temp/last_compile_debug.ino';
-    fs.writeFileSync(debugSketchPath, code);
-    console.log('💾 Debug sketch saved to:', debugSketchPath);
+    if (ENABLE_VERBOSE_LOGS && process.env.SAVE_DEBUG_SKETCH === "true") {
+      const debugSketchPath = path.join(__dirname, "../temp", "last_compile_debug.ino");
+      fs.writeFileSync(debugSketchPath, code);
+      console.log("💾 Debug sketch saved to:", debugSketchPath);
+    }
 
     console.log(`📝 Compiling sketch for ${board}...`);
 
@@ -316,27 +338,7 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
     await dependencyManager.ensureDependencies(code, boardType);
     console.log(`✅ Dependencies ready`);
 
-    // Detect OS and use appropriate Arduino CLI path
-    const isWindows = os.platform() === "win32";
-    
-    // Try to find arduino-cli in PATH first
-    let arduinoCliPath = "arduino-cli";
-    
-    // If not in PATH, try common locations
-    const possiblePaths = isWindows 
-      ? ["C:\\arduino-cli\\arduino-cli.exe"]
-      : [
-          "/opt/render/project/src/arduino-cli/arduino-cli",
-          "/usr/local/bin/arduino-cli",
-          "/usr/bin/arduino-cli"
-        ];
-    
-    for (const testPath of possiblePaths) {
-      if (fs.existsSync(testPath)) {
-        arduinoCliPath = testPath;
-        break;
-      }
-    }
+    const arduinoCliPath = resolveArduinoCliPath();
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
@@ -352,8 +354,8 @@ app.post("/api/compile", compileLimiter, async (req, res) => {
     );
 
     console.log("✅ Compilation successful");
-    if (stdout) console.log("📋 Compiler output:", stdout);
-    if (stderr) console.log("⚠️  Compiler warnings:", stderr);
+    if (ENABLE_VERBOSE_LOGS && stdout) console.log("📋 Compiler output:", stdout);
+    if (ENABLE_VERBOSE_LOGS && stderr) console.log("⚠️  Compiler warnings:", stderr);
 
     const hexFile = path.join(tempDir, "sketch.ino.hex");
     const hexContent = fs.readFileSync(hexFile, "utf8");
@@ -428,27 +430,8 @@ app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
     await dependencyManager.ensureDependencies(code, boardType);
     console.log(`✅ Dependencies ready`);
 
-    // Detect OS and use appropriate Arduino CLI path
-    const isWindows = os.platform() === "win32";
-    
-    let arduinoCliPath = "arduino-cli";
-    const possiblePaths = isWindows 
-      ? [
-          "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
-          "C:\\arduino-cli\\arduino-cli.exe"
-        ]
-      : [
-          "/opt/render/project/src/arduino-cli/arduino-cli",
-          "/usr/local/bin/arduino-cli",
-          "/usr/bin/arduino-cli"
-        ];
-    
-    for (const testPath of possiblePaths) {
-      if (fs.existsSync(testPath)) {
-        arduinoCliPath = testPath;
-        break;
-      }
-    }
+    const arduinoCliPath = resolveArduinoCliPath();
+    const configFile = resolveArduinoConfigFlag();
 
     console.log(`🔧 Using Arduino CLI: ${arduinoCliPath}`);
     console.log(`🖥️  Platform: ${os.platform()}`);
@@ -470,8 +453,8 @@ app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
         );
 
         console.log("✅ Compilation successful");
-        if (compileOut) console.log("📋 Compiler output:", compileOut);
-        if (compileErr) console.log("⚠️  Compiler warnings:", compileErr);
+        if (ENABLE_VERBOSE_LOGS && compileOut) console.log("📋 Compiler output:", compileOut);
+        if (ENABLE_VERBOSE_LOGS && compileErr) console.log("⚠️  Compiler warnings:", compileErr);
 
         // STEP 2: Upload
         console.log(`📤 Uploading to ${port} with ${board}...`);
@@ -482,8 +465,8 @@ app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
         );
 
         console.log("✅ Upload successful!");
-        if (uploadOut) console.log("📋 Upload output:", uploadOut);
-        if (uploadErr) console.log("⚠️  Upload info:", uploadErr);
+        if (ENABLE_VERBOSE_LOGS && uploadOut) console.log("📋 Upload output:", uploadOut);
+        if (ENABLE_VERBOSE_LOGS && uploadErr) console.log("⚠️  Upload info:", uploadErr);
         
         uploadSuccess = true;
         successfulBoard = board;
@@ -548,29 +531,9 @@ app.options("/api/ports", cors());
 app.get("/api/ports", compileLimiter, async (req, res) => {
   try {
     console.log('📋 Listing available serial ports...');
-    
-    // Detect OS and use appropriate Arduino CLI path
-    const isWindows = os.platform() === "win32";
-    
-    let arduinoCliPath = "arduino-cli";
-    const possiblePaths = isWindows 
-      ? ["C:\\arduino-cli\\arduino-cli.exe"]
-      : [
-          "/opt/render/project/src/arduino-cli/arduino-cli",
-          "/usr/local/bin/arduino-cli",
-          "/usr/bin/arduino-cli"
-        ];
-    
-    for (const testPath of possiblePaths) {
-      if (fs.existsSync(testPath)) {
-        arduinoCliPath = testPath;
-        break;
-      }
-    }
 
-    const configFile = fs.existsSync("/opt/render/project/src/.arduino15/arduino-cli.yaml")
-      ? "--config-file /opt/render/project/src/.arduino15/arduino-cli.yaml"
-      : "";
+    const arduinoCliPath = resolveArduinoCliPath();
+    const configFile = resolveArduinoConfigFlag();
 
     // List boards/ports
     const { stdout } = await execAsync(

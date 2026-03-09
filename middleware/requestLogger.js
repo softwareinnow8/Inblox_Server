@@ -1,3 +1,7 @@
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const SHOULD_LOG_REQUEST_BODIES =
+  !IS_PRODUCTION || process.env.LOG_REQUEST_BODIES === "true";
+
 const formatIp = (req) => {
   const forwardedFor = req.headers["x-forwarded-for"];
   if (typeof forwardedFor === "string" && forwardedFor.length > 0) {
@@ -26,11 +30,16 @@ const sanitizeBodyForLog = (body) => {
   }
 
   const sensitiveKeys = ["password", "token", "accessToken", "refreshToken", "authorization"];
-  const clone = Array.isArray(body) ? [...body] : { ...body };
+  if (Array.isArray(body)) {
+    return body.map((item) => sanitizeBodyForLog(item));
+  }
 
+  const clone = { ...body };
   for (const key of Object.keys(clone)) {
     if (sensitiveKeys.includes(key.toLowerCase())) {
       clone[key] = "[REDACTED]";
+    } else if (clone[key] && typeof clone[key] === "object") {
+      clone[key] = sanitizeBodyForLog(clone[key]);
     }
   }
 
@@ -42,7 +51,7 @@ export const requestLogger = (req, res, next) => {
 
   logRequestStart(req);
 
-  if (req.method !== "GET") {
+  if (SHOULD_LOG_REQUEST_BODIES && req.method !== "GET") {
     console.log(`[API BODY] ${req.method} ${req.originalUrl}`, sanitizeBodyForLog(req.body));
   }
 
