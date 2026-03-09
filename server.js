@@ -26,6 +26,7 @@ import projectRoutes from "./routes/projects.js";
 import hardwareRoutes from "./routes/hardware.js";
 import adminRoutes from "./routes/admin.js";
 import contactRoutes from "./routes/contact.js";
+import { adminUpdateRoutes, publicUpdateRoutes } from "./routes/updates.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 
@@ -282,6 +283,8 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/hardware", hardwareRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/admin", authenticateAdmin, adminRoutes);
+app.use("/api/admin/updates", adminUpdateRoutes);
+app.use("/api/updates", publicUpdateRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
