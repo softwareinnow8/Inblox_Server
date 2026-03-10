@@ -192,32 +192,64 @@ adminUpdateRoutes.patch("/:id", requireAdmin({ allowedRoles: ["super-admin"] }),
   }
 });
 
-adminUpdateRoutes.delete("/:id", requireAdmin({ allowedRoles: ["super-admin"] }), async (req, res) => {
-  try {
-    const deleted = await Update.findByIdAndUpdate(
-      req.params.id,
-      {
-        isDeleted: true,
-        isPublished: false,
-        deletedAt: new Date(),
-        updatedBy: req.user?._id || null,
-      },
-      { new: true }
-    ).lean();
+// adminUpdateRoutes.delete("/:id", requireAdmin({ allowedRoles: ["super-admin"] }), async (req, res) => {
+//   try {
+//     const deleted = await Update.findByIdAndUpdate(
+//       req.params.id,
+//       {
+//         isDeleted: true,
+//         isPublished: false,
+//         deletedAt: new Date(),
+//         updatedBy: req.user?._id || null,
+//       },
+//       { new: true }
+//     ).lean();
 
-    if (!deleted) {
-      return res.status(404).json({ error: "Update not found" });
+//     if (!deleted) {
+//       return res.status(404).json({ error: "Update not found" });
+//     }
+
+//     return res.json({
+//       success: true,
+//       message: "Update deleted successfully",
+//       update: serializeUpdate(deleted),
+//     });
+//   } catch (error) {
+//     console.error("Failed to delete update:", error);
+//     return res.status(500).json({ error: "Failed to delete update" });
+//   }
+// });
+
+adminUpdateRoutes.post(
+  "/:id/delete",
+  requireAdmin({ allowedRoles: ["super-admin"] }),
+  async (req, res) => {
+    try {
+      const deleted = await Update.findOneAndUpdate(
+        { _id: req.params.id, isDeleted: false },
+        {
+          isDeleted: true,
+          isPublished: false,
+          deletedAt: new Date(),
+          updatedBy: req.user?._id || null,
+        },
+        { new: true }
+      ).lean();
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Update not found" });
+      }
+
+      return res.json({
+        success: true,
+        message: "Update deleted successfully",
+        update: serializeUpdate(deleted),
+      });
+    } catch (error) {
+      console.error("Failed to delete update:", error);
+      return res.status(500).json({ error: "Failed to delete update" });
     }
-
-    return res.json({
-      success: true,
-      message: "Update deleted successfully",
-      update: serializeUpdate(deleted),
-    });
-  } catch (error) {
-    console.error("Failed to delete update:", error);
-    return res.status(500).json({ error: "Failed to delete update" });
   }
-});
+);
 
 export { adminUpdateRoutes, publicUpdateRoutes };
