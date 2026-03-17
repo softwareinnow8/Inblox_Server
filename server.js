@@ -31,13 +31,6 @@ import { requestLogger, processLogger } from "./middleware/requestLogger.js";
 
 const app = express();
 const server = http.createServer(app);
-
-mongoose.set("debug", (collectionName, methodName, query, doc) => {
-  console.log(
-    `[DB OP] ${collectionName}.${methodName}`,
-    JSON.stringify({ query, doc })
-  );
-});
 processLogger();
 
 // Middleware
@@ -81,7 +74,7 @@ app.use(cookieParser()); // ✅ Parse cookies from requests
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(requestLogger);
 
-// MongoDB connection is now handled by db.js (centralized)
+// PostgreSQL (Prisma) connection is handled by db.js (centralized)
 
 // Socket.IO setup
 const io = new Server(server, {
@@ -307,7 +300,7 @@ const startServer = async () => {
   try {
     const PORT = process.env.PORT || 3001;
     
-    // Connect to MongoDB using centralized connection
+    // Connect to PostgreSQL using centralized Prisma connection
     await connectDB();
     
     server.listen(PORT, () => {

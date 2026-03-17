@@ -1,6 +1,5 @@
 import express from 'express';
-import CustomBlock from '../models/CustomBlock.js';
-import BuiltInBoardBlock from '../models/BuiltInBoardBlock.js';
+import prisma from '../prismaClient.js';
 import requireAdmin from '../middleware/requireAdmin.js';
 import {getBoardCatalog, getBoardIdSet} from '../utils/board-catalog.js';
 
@@ -143,9 +142,9 @@ const validatePayload = async (payload, options = {}) => {
 
 adminCustomBlockRoutes.get('/', requireAdmin(), async (req, res) => {
     try {
-        const blocks = await CustomBlock.find({})
-            .sort({updatedAt: -1, createdAt: -1})
-            .lean();
+        const blocks = await prisma.customBlock.findMany({
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
+        });
         res.json({blocks, total: blocks.length});
     } catch (error) {
         console.error('Failed to fetch admin custom blocks:', error);
@@ -156,7 +155,12 @@ adminCustomBlockRoutes.get('/', requireAdmin(), async (req, res) => {
 adminCustomBlockRoutes.get('/boards', requireAdmin(), async (req, res) => {
     try {
         const catalogBoards = await getBoardCatalog();
-        const distinctBoards = await CustomBlock.distinct('board', {board: {$exists: true, $ne: ''}});
+        const boardRows = await prisma.customBlock.findMany({
+            where: { board: { not: '' } },
+            select: { board: true },
+            distinct: ['board']
+        });
+        const distinctBoards = boardRows.map(r => r.board);
         const values = Array.from(new Set([
             ...catalogBoards.map(item => item.value),
             ...(distinctBoards || []).map(item => `${item}`.trim()).filter(Boolean)
@@ -179,18 +183,16 @@ adminCustomBlockRoutes.get('/categories', requireAdmin(), async (req, res) => {
     try {
         const board = `${req.query.board || ''}`.trim();
 
-        const customQuery = board ? {board} : {};
-        const builtInQuery = board ? {isActive: true, board} : {isActive: true};
+        const where = board ? {board} : {};
+        const categoryRows = await prisma.customBlock.findMany({
+            where,
+            select: { category: true },
+            distinct: ['category']
+        });
 
-        const [customCategories, builtInHeadings] = await Promise.all([
-            CustomBlock.distinct('category', customQuery),
-            BuiltInBoardBlock.distinct('heading', builtInQuery)
-        ]);
-
-        const categories = Array.from(new Set([
-            ...(customCategories || []).map(item => `${item || ''}`.trim()),
-            ...(builtInHeadings || []).map(item => `${item || ''}`.trim())
-        ].filter(Boolean))).sort((left, right) => left.localeCompare(right));
+        const categories = Array.from(new Set(
+            categoryRows.map(r => `${r.category || ''}`.trim()).filter(Boolean)
+        )).sort((left, right) => left.localeCompare(right));
 
         return res.json({categories, total: categories.length});
     } catch (error) {
@@ -207,13 +209,20 @@ adminCustomBlockRoutes.post('/', requireAdmin(), async (req, res) => {
             return res.status(400).json({error: validationError});
         }
 
-        const latest = await CustomBlock.findOne({name: payload.name}).sort({version: -1}).lean();
+        const latest = await prisma.customBlock.findFirst({
+            where: { name: payload.name },
+            orderBy: { version: 'desc' }
+        });
         const version = latest ? latest.version + 1 : 1;
 
-        const created = await CustomBlock.create({
-            ...payload,
-            version,
-            createdAt: new Date()
+        const created = await prisma.customBlock.create({
+            data: {
+                ...payload,
+                version,
+                isBuiltIn: false,
+                createdById: req.user?.id || null,
+                creatorType: req.user?.id ? 'user' : 'system'
+            }
         });
 
         res.status(201).json({message: 'Custom block created', block: created});
@@ -234,7 +243,7 @@ adminCustomBlockRoutes.post('/import-legacy', requireAdmin(), async (req, res) =
         const boardIdSet = new Set(boardCatalog.map(item => item.value));
         const fallbackBoard = boardCatalog[0]?.value || 'arduino-uno';
 
-        const existingBlocks = await CustomBlock.find({}).lean();
+        const existingBlocks = await prisma.customBlock.findMany({ select: { board: true, name: true, category: true, blockType: true, blockText: true } });
         const knownSignatures = new Set(existingBlocks.map(buildSignature));
 
         let created = 0;
@@ -259,13 +268,20 @@ adminCustomBlockRoutes.post('/import-legacy', requireAdmin(), async (req, res) =
                     continue;
                 }
 
-                const latest = await CustomBlock.findOne({name: payload.name}).sort({version: -1}).lean();
+                const latest = await prisma.customBlock.findFirst({
+                    where: { name: payload.name },
+                    orderBy: { version: 'desc' }
+                });
                 const version = latest ? latest.version + 1 : 1;
 
-                await CustomBlock.create({
-                    ...payload,
-                    version,
-                    createdAt: new Date()
+                await prisma.customBlock.create({
+                    data: {
+                        ...payload,
+                        version,
+                        isBuiltIn: false,
+                        createdById: req.user?.id || null,
+                        creatorType: req.user?.id ? 'user' : 'migration'
+                    }
                 });
 
                 knownSignatures.add(signature);
@@ -291,7 +307,7 @@ adminCustomBlockRoutes.post('/import-legacy', requireAdmin(), async (req, res) =
 
 adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
     try {
-        const existing = await CustomBlock.findById(req.params.id);
+        const existing = await prisma.customBlock.findUnique({ where: { id: req.params.id } });
         if (!existing) {
             return res.status(404).json({error: 'Custom block not found'});
         }
@@ -303,10 +319,18 @@ adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
         }
 
         if (existing.isPublished) {
-            const cloned = await CustomBlock.create({
-                ...payload,
-                version: existing.version + 1,
-                createdAt: new Date()
+            const latest = await prisma.customBlock.findFirst({
+                where: { name: payload.name },
+                orderBy: { version: 'desc' }
+            });
+            const cloned = await prisma.customBlock.create({
+                data: {
+                    ...payload,
+                    version: (latest?.version ?? existing.version) + 1,
+                    isBuiltIn: false,
+                    createdById: req.user?.id || null,
+                    creatorType: req.user?.id ? 'user' : 'system'
+                }
             });
             return res.json({
                 message: 'Published block was versioned safely. New version created.',
@@ -314,14 +338,10 @@ adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
             });
         }
 
-        const updated = await CustomBlock.findByIdAndUpdate(
-            req.params.id,
-            {
-                ...payload,
-                updatedAt: new Date()
-            },
-            {new: true, runValidators: true}
-        );
+        const updated = await prisma.customBlock.update({
+            where: { id: req.params.id },
+            data: payload
+        });
 
         return res.json({message: 'Custom block updated', block: updated});
     } catch (error) {
@@ -332,10 +352,11 @@ adminCustomBlockRoutes.put('/:id', requireAdmin(), async (req, res) => {
 
 adminCustomBlockRoutes.delete('/:id', requireAdmin(), async (req, res) => {
     try {
-        const deleted = await CustomBlock.findByIdAndDelete(req.params.id);
-        if (!deleted) {
+        const existing = await prisma.customBlock.findUnique({ where: { id: req.params.id } });
+        if (!existing) {
             return res.status(404).json({error: 'Custom block not found'});
         }
+        await prisma.customBlock.delete({ where: { id: req.params.id } });
         res.json({message: 'Custom block deleted'});
     } catch (error) {
         console.error('Failed to delete custom block:', error);
@@ -345,20 +366,24 @@ adminCustomBlockRoutes.delete('/:id', requireAdmin(), async (req, res) => {
 
 publicCustomBlockRoutes.get('/', async (req, res) => {
     try {
-        const publishedBlocks = await CustomBlock.aggregate([
-            {$match: {isPublished: true}},
-            {$sort: {name: 1, version: -1, createdAt: -1}},
-            {
-                $group: {
-                    _id: '$name',
-                    latest: {$first: '$$ROOT'}
-                }
-            },
-            {$replaceRoot: {newRoot: '$latest'}},
-            {$sort: {category: 1, name: 1}}
-        ]);
+        // Fetch all published blocks sorted by name asc, version desc
+        const allPublished = await prisma.customBlock.findMany({
+            where: { isPublished: true },
+            orderBy: [{ name: 'asc' }, { version: 'desc' }, { createdAt: 'desc' }]
+        });
 
-        res.json({blocks: publishedBlocks, total: publishedBlocks.length});
+        // Keep only the highest version per block name
+        const seen = new Set();
+        const latestByName = allPublished.filter(block => {
+            if (seen.has(block.name)) return false;
+            seen.add(block.name);
+            return true;
+        });
+
+        // Sort by category then name, matching former MongoDB aggregate output
+        latestByName.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+
+        res.json({blocks: latestByName, total: latestByName.length});
     } catch (error) {
         console.error('Failed to fetch published custom blocks:', error);
         res.status(500).json({error: 'Failed to fetch published custom blocks'});

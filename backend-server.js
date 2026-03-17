@@ -22,13 +22,6 @@ import connectDB from "./db.js";
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
-
-mongoose.set("debug", (collectionName, methodName, query, doc) => {
-  console.log(
-    `[DB OP] ${collectionName}.${methodName}`,
-    JSON.stringify({ query, doc })
-  );
-});
 processLogger();
 
 // Import routes
@@ -144,7 +137,7 @@ app.post('/api/upload-firmware', async (req, res) => {
     }
 });
 
-// MongoDB connection is now handled by db.js (centralized)
+// PostgreSQL (Prisma) connection is handled by db.js (centralized)
 
 // Arduino Compiler Endpoint - Handle OPTIONS preflight
 app.options("/api/compile", cors());
@@ -822,7 +815,7 @@ app.use("*", (req, res) => {
 // Start server
 const startServer = async () => {
   try {
-    // Connect to MongoDB using centralized connection
+    // Connect to PostgreSQL using centralized Prisma connection
     await connectDB();
     
     app.listen(PORT, () => {

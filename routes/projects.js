@@ -158,51 +158,41 @@ router.get("/:id", optionalAuth, async (req, res) => {
 // Like a public project (protected route)
 router.post("/:id/like", authenticateToken, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const projectId = req.params.id;
+    const userId = req.user.id;
 
-    if (!project) {
-      return res.status(404).json({ error: "Project not found" });
-    }
+    const [project, existingLike, existingDislike] = await Promise.all([
+      prisma.project.findUnique({ where: { id: projectId } }),
+      prisma.projectLike.findUnique({ where: { projectId_userId: { projectId, userId } } }),
+      prisma.projectDislike.findUnique({ where: { projectId_userId: { projectId, userId } } }),
+    ]);
 
-    if (!project.isPublic) {
-      return res.status(403).json({ error: "You can only react to public projects" });
-    }
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project.isPublic) return res.status(403).json({ error: "You can only react to public projects" });
+    if (project.authorId === userId) return res.status(403).json({ error: "You cannot react to your own project" });
 
-    if (project.author.toString() === req.user._id.toString()) {
-      return res.status(403).json({ error: "You cannot react to your own project" });
-    }
-
-    project.likedBy = project.likedBy || [];
-    project.dislikedBy = project.dislikedBy || [];
-
-    const userId = req.user._id.toString();
-    const likedIndex = project.likedBy.findIndex((id) => id.toString() === userId);
-    const dislikedIndex = project.dislikedBy.findIndex((id) => id.toString() === userId);
-
-    if (likedIndex !== -1) {
-      project.likedBy.splice(likedIndex, 1);
-    } else {
-      project.likedBy.push(req.user._id);
-      if (dislikedIndex !== -1) {
-        project.dislikedBy.splice(dislikedIndex, 1);
+    await prisma.$transaction(async (tx) => {
+      if (existingLike) {
+        await tx.projectLike.delete({ where: { projectId_userId: { projectId, userId } } });
+        await tx.project.update({ where: { id: projectId }, data: { likes: { decrement: 1 } } });
+      } else {
+        await tx.projectLike.create({ data: { projectId, userId } });
+        await tx.project.update({ where: { id: projectId }, data: { likes: { increment: 1 } } });
+        if (existingDislike) {
+          await tx.projectDislike.delete({ where: { projectId_userId: { projectId, userId } } });
+          await tx.project.update({ where: { id: projectId }, data: { dislikes: { decrement: 1 } } });
+        }
       }
-    }
+    });
 
-    project.likes = project.likedBy.length;
-    project.dislikes = project.dislikedBy.length;
-    await project.save();
-
-    const userReaction = project.likedBy.some((id) => id.toString() === userId)
-      ? "like"
-      : project.dislikedBy.some((id) => id.toString() === userId)
-      ? "dislike"
-      : null;
+    const updated = await prisma.project.findUnique({ where: { id: projectId } });
+    const userReaction = existingLike ? null : "like";
 
     res.json({
       message: userReaction === "like" ? "Project liked" : "Like removed",
-      projectId: project._id,
-      likes: project.likes,
-      dislikes: project.dislikes,
+      projectId,
+      likes: updated.likes,
+      dislikes: updated.dislikes,
       userReaction,
     });
   } catch (error) {
@@ -214,51 +204,41 @@ router.post("/:id/like", authenticateToken, async (req, res) => {
 // Dislike a public project (protected route)
 router.post("/:id/dislike", authenticateToken, async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const projectId = req.params.id;
+    const userId = req.user.id;
 
-    if (!project) {
-      return res.status(404).json({ error: "Project not found" });
-    }
+    const [project, existingLike, existingDislike] = await Promise.all([
+      prisma.project.findUnique({ where: { id: projectId } }),
+      prisma.projectLike.findUnique({ where: { projectId_userId: { projectId, userId } } }),
+      prisma.projectDislike.findUnique({ where: { projectId_userId: { projectId, userId } } }),
+    ]);
 
-    if (!project.isPublic) {
-      return res.status(403).json({ error: "You can only react to public projects" });
-    }
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project.isPublic) return res.status(403).json({ error: "You can only react to public projects" });
+    if (project.authorId === userId) return res.status(403).json({ error: "You cannot react to your own project" });
 
-    if (project.author.toString() === req.user._id.toString()) {
-      return res.status(403).json({ error: "You cannot react to your own project" });
-    }
-
-    project.likedBy = project.likedBy || [];
-    project.dislikedBy = project.dislikedBy || [];
-
-    const userId = req.user._id.toString();
-    const likedIndex = project.likedBy.findIndex((id) => id.toString() === userId);
-    const dislikedIndex = project.dislikedBy.findIndex((id) => id.toString() === userId);
-
-    if (dislikedIndex !== -1) {
-      project.dislikedBy.splice(dislikedIndex, 1);
-    } else {
-      project.dislikedBy.push(req.user._id);
-      if (likedIndex !== -1) {
-        project.likedBy.splice(likedIndex, 1);
+    await prisma.$transaction(async (tx) => {
+      if (existingDislike) {
+        await tx.projectDislike.delete({ where: { projectId_userId: { projectId, userId } } });
+        await tx.project.update({ where: { id: projectId }, data: { dislikes: { decrement: 1 } } });
+      } else {
+        await tx.projectDislike.create({ data: { projectId, userId } });
+        await tx.project.update({ where: { id: projectId }, data: { dislikes: { increment: 1 } } });
+        if (existingLike) {
+          await tx.projectLike.delete({ where: { projectId_userId: { projectId, userId } } });
+          await tx.project.update({ where: { id: projectId }, data: { likes: { decrement: 1 } } });
+        }
       }
-    }
+    });
 
-    project.likes = project.likedBy.length;
-    project.dislikes = project.dislikedBy.length;
-    await project.save();
-
-    const userReaction = project.likedBy.some((id) => id.toString() === userId)
-      ? "like"
-      : project.dislikedBy.some((id) => id.toString() === userId)
-      ? "dislike"
-      : null;
+    const updated = await prisma.project.findUnique({ where: { id: projectId } });
+    const userReaction = existingDislike ? null : "dislike";
 
     res.json({
       message: userReaction === "dislike" ? "Project disliked" : "Dislike removed",
-      projectId: project._id,
-      likes: project.likes,
-      dislikes: project.dislikes,
+      projectId,
+      likes: updated.likes,
+      dislikes: updated.dislikes,
       userReaction,
     });
   } catch (error) {
