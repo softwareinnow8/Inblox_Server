@@ -13,6 +13,9 @@ import { promisify } from "util";
 import dotenv from "dotenv";
 dotenv.config();
 
+// Rate limiting
+import rateLimit from "express-rate-limit";
+
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +26,53 @@ import connectDB from "./db.js";
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
+
+// Trust first proxy (Render/Nginx/Cloudflare) so req.ip is correct for rate limiting.
+app.set("trust proxy", 1);
+
+// ============================================================
+// Rate Limiters
+// ============================================================
+
+// Helper to build a rate limiter with a custom message
+const makeRateLimiter = (windowMinutes, max, label) =>
+  rateLimit({
+    windowMs: windowMinutes * 60 * 1000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: `Too many ${label} requests. Please wait and try again.`,
+    },
+  });
+
+// Global fallback: 200 req / 15 min per IP
+const globalLimiter = makeRateLimiter(15, 200, "");
+
+// Auth — brute-force protection (signin / signup)
+const authLimiter = makeRateLimiter(15, 10, "authentication");
+
+// Sensitive one-off auth actions (forgot-password, resend-verification, accept-invite)
+const sensitiveAuthLimiter = makeRateLimiter(15, 5, "password-reset/verification");
+
+// Arduino compile — expensive server-side compute
+const compileLimiter = makeRateLimiter(15, 20, "compilation");
+
+// Contact form — anti-spam
+const contactLimiter = makeRateLimiter(60, 5, "contact form");
+
+// Project writes (create / update / delete / remix)
+const projectWriteLimiter = makeRateLimiter(15, 30, "project write");
+
+// Admin panel
+const adminLimiter = makeRateLimiter(15, 60, "admin");
+
+// Public read-only resources (boards, blocks, updates)
+const publicReadLimiter = makeRateLimiter(15, 200, "public read");
+
+// Apply global limiter to all routes
+app.use(globalLimiter);
 
 mongoose.set("debug", (collectionName, methodName, query, doc) => {
   console.log(
@@ -125,7 +175,7 @@ app.get('/compile-test.html', (req, res) => {
 });
 
 // Upload firmware endpoint
-app.post('/api/upload-firmware', async (req, res) => {
+app.post('/api/upload-firmware', compileLimiter, async (req, res) => {
     const { hexData, boardType = 'arduino-nano' } = req.body;
     
     if (!hexData) {
@@ -161,7 +211,7 @@ app.post('/api/upload-firmware', async (req, res) => {
 app.options("/api/compile", cors());
 
 // Arduino Compiler Endpoint - MUST be before catch-all route
-app.post("/api/compile", async (req, res) => {
+app.post("/api/compile", compileLimiter, async (req, res) => {
   let { code, board, boardType = "arduino-uno" } = req.body;
   
   // Map boardType to FQBN if board not provided
@@ -275,7 +325,7 @@ app.post("/api/compile", async (req, res) => {
 // Compile and Upload Endpoint for Uno X (MiniCore with Urboot)
 app.options("/api/compile-and-upload", cors());
 
-app.post("/api/compile-and-upload", async (req, res) => {
+app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
   let { code, boardType = "uno-x", port } = req.body;
   
   if (!code) {
@@ -448,7 +498,7 @@ app.post("/api/compile-and-upload", async (req, res) => {
 // List Available Ports Endpoint
 app.options("/api/ports", cors());
 
-app.get("/api/ports", async (req, res) => {
+app.get("/api/ports", compileLimiter, async (req, res) => {
   try {
     console.log('📋 Listing available serial ports...');
     
@@ -530,7 +580,7 @@ app.get("/api/ports", async (req, res) => {
 app.options("/api/compile-esp32", cors());
 
 // ESP32 Compiler Endpoint
-app.post("/api/compile-esp32", async (req, res) => {
+app.post("/api/compile-esp32", compileLimiter, async (req, res) => {
   // Enhanced CORS debugging
   console.log(`\n🔧 ESP32 Compile Request Received`);
   console.log(`Origin: ${req.headers.origin || 'undefined'}`);
@@ -726,20 +776,37 @@ function parseIntelHex(hexString) {
 }
 
 // Routes
+// Auth: signin/signup use strict authLimiter; sensitive one-offs use sensitiveAuthLimiter;
+// remaining user session routes use global limiter via authRoutes/userRoutes pass-through
+app.use("/api/auth/signin", authLimiter);
+app.use("/api/auth/signup", authLimiter);
+app.use("/api/auth/forgot-password", sensitiveAuthLimiter);
+app.use("/api/auth/resend-verification", sensitiveAuthLimiter);
+app.use("/api/auth/accept-invite", sensitiveAuthLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/auth", userRoutes);
-app.use("/api/projects", projectRoutes);
-app.use("/api/arduino", arduinoUploadRouter);
-app.use("/api/contact", contactRoutes);
-app.use("/api/admin", authenticateAdmin, adminRoutes);
-app.use("/api/admin/custom-blocks", adminCustomBlockRoutes);
-app.use("/api/admin/boards", adminBoardCatalogRoutes);
-app.use("/api/admin/built-in-board-blocks", adminBuiltInBoardBlockRoutes);
-app.use("/api/admin/updates", adminUpdateRoutes);
-app.use("/api/custom-blocks", publicCustomBlockRoutes);
-app.use("/api/boards", publicBoardCatalogRoutes);
-app.use("/api/built-in-board-blocks", publicBuiltInBoardBlockRoutes);
-app.use("/api/updates", publicUpdateRoutes);
+
+// Projects: limit write operations
+app.use("/api/projects", projectWriteLimiter, projectRoutes);
+
+// Arduino upload & compile
+app.use("/api/arduino", compileLimiter, arduinoUploadRouter);
+
+// Contact form
+app.use("/api/contact", contactLimiter, contactRoutes);
+
+// Admin routes
+app.use("/api/admin", adminLimiter, authenticateAdmin, adminRoutes);
+app.use("/api/admin/custom-blocks", adminLimiter, adminCustomBlockRoutes);
+app.use("/api/admin/boards", adminLimiter, adminBoardCatalogRoutes);
+app.use("/api/admin/built-in-board-blocks", adminLimiter, adminBuiltInBoardBlockRoutes);
+app.use("/api/admin/updates", adminLimiter, adminUpdateRoutes);
+
+// Public read-only resources
+app.use("/api/custom-blocks", publicReadLimiter, publicCustomBlockRoutes);
+app.use("/api/boards", publicReadLimiter, publicBoardCatalogRoutes);
+app.use("/api/built-in-board-blocks", publicReadLimiter, publicBuiltInBoardBlockRoutes);
+app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token
