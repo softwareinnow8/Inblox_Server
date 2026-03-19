@@ -23,6 +23,7 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
 processLogger();
+app.set("trust proxy", 1);
 
 // Import routes
 import authRoutes from "./routes/auth.js";
@@ -37,6 +38,12 @@ import { adminBuiltInBoardBlockRoutes, publicBuiltInBoardBlockRoutes } from "./r
 import { adminUpdateRoutes, publicUpdateRoutes } from "./routes/updates.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
+import {
+  adminLimiter,
+  compileLimiter,
+  globalLimiter,
+  publicReadLimiter,
+} from "./middleware/rateLimiter.js";
 
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
@@ -95,6 +102,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(requestLogger);
+app.use(globalLimiter);
 
 // Serve static files from parent directory for compilation test
 app.use('/static', express.static(path.join(__dirname, '..', 'static')));
@@ -143,7 +151,7 @@ app.post('/api/upload-firmware', async (req, res) => {
 app.options("/api/compile", cors());
 
 // Arduino Compiler Endpoint - MUST be before catch-all route
-app.post("/api/compile", async (req, res) => {
+app.post("/api/compile", compileLimiter, async (req, res) => {
   let { code, board, boardType = "arduino-uno" } = req.body;
   
   // Map boardType to FQBN if board not provided
@@ -257,7 +265,7 @@ app.post("/api/compile", async (req, res) => {
 // Compile and Upload Endpoint for Uno X (MiniCore with Urboot)
 app.options("/api/compile-and-upload", cors());
 
-app.post("/api/compile-and-upload", async (req, res) => {
+app.post("/api/compile-and-upload", compileLimiter, async (req, res) => {
   let { code, boardType = "uno-x", port } = req.body;
   
   if (!code) {
@@ -512,7 +520,7 @@ app.get("/api/ports", async (req, res) => {
 app.options("/api/compile-esp32", cors());
 
 // ESP32 Compiler Endpoint
-app.post("/api/compile-esp32", async (req, res) => {
+app.post("/api/compile-esp32", compileLimiter, async (req, res) => {
   // Enhanced CORS debugging
   console.log(`\n🔧 ESP32 Compile Request Received`);
   console.log(`Origin: ${req.headers.origin || 'undefined'}`);
@@ -713,15 +721,15 @@ app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/arduino", arduinoUploadRouter);
 app.use("/api/contact", contactRoutes);
-app.use("/api/admin", authenticateAdmin, adminRoutes);
-app.use("/api/admin/custom-blocks", adminCustomBlockRoutes);
-app.use("/api/admin/boards", adminBoardCatalogRoutes);
-app.use("/api/admin/built-in-board-blocks", adminBuiltInBoardBlockRoutes);
-app.use("/api/admin/updates", adminUpdateRoutes);
-app.use("/api/custom-blocks", publicCustomBlockRoutes);
-app.use("/api/boards", publicBoardCatalogRoutes);
-app.use("/api/built-in-board-blocks", publicBuiltInBoardBlockRoutes);
-app.use("/api/updates", publicUpdateRoutes);
+app.use("/api/admin", adminLimiter, authenticateAdmin, adminRoutes);
+app.use("/api/admin/custom-blocks", adminLimiter, adminCustomBlockRoutes);
+app.use("/api/admin/boards", adminLimiter, adminBoardCatalogRoutes);
+app.use("/api/admin/built-in-board-blocks", adminLimiter, adminBuiltInBoardBlockRoutes);
+app.use("/api/admin/updates", adminLimiter, adminUpdateRoutes);
+app.use("/api/custom-blocks", publicReadLimiter, publicCustomBlockRoutes);
+app.use("/api/boards", publicReadLimiter, publicBoardCatalogRoutes);
+app.use("/api/built-in-board-blocks", publicReadLimiter, publicBuiltInBoardBlockRoutes);
+app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token

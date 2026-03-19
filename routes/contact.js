@@ -1,6 +1,7 @@
 import express from "express";
 import prisma from "../prismaClient.js";
 import { authenticateToken, optionalAuth } from "../middleware/auth.js";
+import { contactLimiter } from "../middleware/rateLimiter.js";
 import {
   sendContactNotificationEmail,
   sendContactConfirmationEmail,
@@ -13,7 +14,7 @@ router.use((req, res, next) => {
 });
 
 // Public endpoint - Submit contact/support request
-router.post("/", optionalAuth, async (req, res) => {
+router.post("/", contactLimiter, optionalAuth, async (req, res) => {
   try {
     const { name, email, subject, message, category } = req.body;
 

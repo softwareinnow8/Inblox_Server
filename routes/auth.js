@@ -10,6 +10,10 @@ import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfir
 // import { sendVerificationEmail,sendEmail } from "../services/emailService.js";
 import dotenv from 'dotenv';
 import validatePassword from "../utils/passwordValidator.js";
+import {
+  authLimiter,
+  sensitiveAuthLimiter,
+} from "../middleware/rateLimiter.js";
 dotenv.config();
 
 const router = express.Router();
@@ -47,7 +51,7 @@ const generateToken = (userId, isAdmin = false) => {
 };
 
 // Sign up route
-router.post("/signup", async (req, res) => {
+router.post("/signup", authLimiter, async (req, res) => {
   try {
     const { username, email, password, firstName, lastName } = req.body;
 
@@ -152,7 +156,7 @@ if (passwordError) {
 });
 
 // Sign in route
-router.post("/signin", async (req, res) => {
+router.post("/signin", authLimiter, async (req, res) => {
   try {
     const { identifier, password } = req.body; // identifier can be username or email
 
@@ -455,7 +459,7 @@ router.get("/verify-email/:token", async (req, res) => {
 });
 
 // Accept invite and complete user profile
-router.post("/accept-invite", async (req, res) => {
+router.post("/accept-invite", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { token, username, firstName, lastName, password } = req.body;
 
@@ -543,7 +547,7 @@ router.post("/accept-invite", async (req, res) => {
 });
 
 // Resend verification email
-router.post("/resend-verification", async (req, res) => {
+router.post("/resend-verification", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -610,7 +614,7 @@ router.post("/resend-verification", async (req, res) => {
 // ================================
 
 // Request password reset
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -702,7 +706,7 @@ router.get("/reset-password/:token", async (req, res) => {
 });
 
 // Reset password with token
-router.post("/reset-password/:token", async (req, res) => {
+router.post("/reset-password/:token", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { token } = req.params;
     const { password } = req.body;

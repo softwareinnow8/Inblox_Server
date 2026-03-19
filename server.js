@@ -28,10 +28,17 @@ import contactRoutes from "./routes/contact.js";
 import { adminUpdateRoutes, publicUpdateRoutes } from "./routes/updates.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
+import {
+  adminLimiter,
+  compileLimiter,
+  globalLimiter,
+  publicReadLimiter,
+} from "./middleware/rateLimiter.js";
 
 const app = express();
 const server = http.createServer(app);
 processLogger();
+app.set("trust proxy", 1);
 
 // Middleware
 // Set security headers for OAuth compatibility
@@ -73,6 +80,7 @@ app.use(cookieParser()); // ✅ Parse cookies from requests
 
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(requestLogger);
+app.use(globalLimiter);
 
 // PostgreSQL (Prisma) connection is handled by db.js (centralized)
 
@@ -170,7 +178,7 @@ io.on("connection", (socket) => {
 });
 
 // Arduino Compiler Endpoint
-app.post("/api/compile", async (req, res) => {
+app.post("/api/compile", compileLimiter, async (req, res) => {
   const { code, board = "arduino:avr:uno" } = req.body;
   
   if (!code) {
@@ -274,9 +282,9 @@ app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/hardware", hardwareRoutes);
 app.use("/api/contact", contactRoutes);
-app.use("/api/admin", authenticateAdmin, adminRoutes);
-app.use("/api/admin/updates", adminUpdateRoutes);
-app.use("/api/updates", publicUpdateRoutes);
+app.use("/api/admin", adminLimiter, authenticateAdmin, adminRoutes);
+app.use("/api/admin/updates", adminLimiter, adminUpdateRoutes);
+app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {

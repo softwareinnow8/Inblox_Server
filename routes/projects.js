@@ -1,6 +1,7 @@
 import express from "express";
 import prisma from "../prismaClient.js";
 import { authenticateToken, optionalAuth } from "../middleware/auth.js";
+import { projectWriteLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 router.use((req, res, next) => {
@@ -248,7 +249,7 @@ router.post("/:id/dislike", authenticateToken, async (req, res) => {
 });
 
 // Create a new project (protected route)
-router.post("/", authenticateToken, async (req, res) => {
+router.post("/", projectWriteLimiter, authenticateToken, async (req, res) => {
   try {
     const { title, description, projectData, thumbnail, isPublic, tags } =
       req.body;
@@ -291,7 +292,7 @@ router.post("/", authenticateToken, async (req, res) => {
 });
 
 // Update a project (protected route)
-router.put("/:id", authenticateToken, async (req, res) => {
+router.put("/:id", projectWriteLimiter, authenticateToken, async (req, res) => {
   try {
     const project = await prisma.project.findUnique({
       where: { id: req.params.id },
@@ -341,7 +342,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
 });
 
 // Delete a project (protected route)
-router.delete("/:id", authenticateToken, async (req, res) => {
+router.delete("/:id", projectWriteLimiter, authenticateToken, async (req, res) => {
   try {
     const project = await prisma.project.findUnique({
       where: { id: req.params.id },
@@ -366,7 +367,7 @@ router.delete("/:id", authenticateToken, async (req, res) => {
 });
 
 // Create a copy/remix of a project (protected route)
-router.post("/:id/remix", authenticateToken, async (req, res) => {
+router.post("/:id/remix", projectWriteLimiter, authenticateToken, async (req, res) => {
   try {
     const originalProject = await prisma.project.findUnique({
       where: { id: req.params.id },
