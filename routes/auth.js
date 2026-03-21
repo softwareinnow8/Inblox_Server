@@ -50,6 +50,30 @@ const generateToken = (userId, isAdmin = false) => {
   );
 };
 
+// ✅ Helper function to get proper cookie options (works on localhost AND production)
+const getCookieOptions = () => {
+  const isLocalhost = process.env.NODE_ENV !== "production";
+  
+  const options = {
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/',
+  };
+  
+  if (isLocalhost) {
+    // For localhost: NO secure flag (allows http://localhost)
+    options.secure = false;
+    options.sameSite = 'Lax';
+  } else {
+    // For production: REQUIRE https
+    options.secure = true;
+    options.sameSite = 'None'; // Required when secure=true on cross-origin
+  }
+  
+  console.log(`🍪 Cookie config - Localhost: ${isLocalhost}, Options:`, options);
+  return options;
+};
+
 // Sign up route
 router.post("/signup", authLimiter, async (req, res) => {
   try {
@@ -123,13 +147,10 @@ if (passwordError) {
     // Generate token (but user still needs to verify email)
     const token = generateToken(user.id, adminStatus.isAdmin);
 
-    // Set HttpOnly cookie
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    // Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", token, cookieOptions);
+    console.log("✅ Cookie set for signup");
 
     res.status(201).json({
       message: "Account created! Please check your email to verify your account before signing in.",
@@ -210,13 +231,10 @@ router.post("/signin", authLimiter, async (req, res) => {
     // Generate token
     const token = generateToken(user.id, adminStatus.isAdmin);
 
-    // Set HttpOnly cookie
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Lax",
-      maxAge: 24 * 60 * 60 * 1000
-    });
+    // Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", token, cookieOptions);
+    console.log("✅ Cookie set for signin");
 
     res.json({
       message: "Sign in successful",
@@ -378,13 +396,10 @@ router.get("/google/callback", async (req, res) => {
     // Generate JWT token
     const jwtToken = generateToken(user.id, adminStatus.isAdmin);
 
-    // ✅ Set HttpOnly cookie (SECURE)
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,          // ❗ JavaScript cannot access
-      secure: process.env.NODE_ENV === "production", // true in production
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", // Required for cross-site
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    // ✅ Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Google OAuth: Cookie set");
 
     // Redirect to frontend (no token in URL)
     res.redirect(`${FRONTEND_URL}/#/`);
@@ -441,14 +456,11 @@ router.get("/verify-email/:token", async (req, res) => {
     // Check admin status from Admin collection
     const adminStatus = await checkAdminStatus(user.id);
 
-    // Create session (same behavior as Google OAuth)
+    // Create session using smart cookie options
     const jwtToken = generateToken(user.id, adminStatus.isAdmin);
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Email verification: Cookie set");
 
     // Redirect the user to the frontend app with success status
     return res.redirect(`${FRONTEND_URL}/#/?email_verification=success`);
@@ -522,12 +534,9 @@ router.post("/accept-invite", sensitiveAuthLimiter, async (req, res) => {
 
     const adminStatus = await checkAdminStatus(updatedUser.id);
     const jwtToken = generateToken(updatedUser.id, adminStatus.isAdmin);
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Accept invite: Cookie set");
 
     res.json({
       message: "Invite accepted successfully",
@@ -768,6 +777,28 @@ if (passwordError) {
     console.error("Reset password error:", error);
     res.status(500).json({ error: "Server error during password reset" });
   }
+});
+
+// ================================
+// DEBUG: Check if cookies are working
+// ================================
+router.get("/debug/cookies", (req, res) => {
+  console.log("🍪 DEBUG: Checking cookies...");
+  console.log("Request Cookies:", req.cookies);
+  console.log("Request Headers:", req.headers.cookie);
+  console.log("NODE_ENV:", process.env.NODE_ENV);
+  
+  res.json({
+    message: "Debug endpoint - Check server logs for cookie details",
+    receivedCookies: req.cookies,
+    cookieHeader: req.headers.cookie || "No cookies in request",
+    nodeEnv: process.env.NODE_ENV,
+    cookieConfig: {
+      isLocalhost: process.env.NODE_ENV !== "production",
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax"
+    }
+  });
 });
 
 export default router;
