@@ -44,6 +44,7 @@ import {
   globalLimiter,
   publicReadLimiter,
 } from "./middleware/rateLimiter.js";
+import translateRoutes from "./routes/translate.js";
 
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
@@ -730,6 +731,7 @@ app.use("/api/custom-blocks", publicReadLimiter, publicCustomBlockRoutes);
 app.use("/api/boards", publicReadLimiter, publicBoardCatalogRoutes);
 app.use("/api/built-in-board-blocks", publicReadLimiter, publicBuiltInBoardBlockRoutes);
 app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
+app.use("/api/translate", publicReadLimiter, translateRoutes);
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token

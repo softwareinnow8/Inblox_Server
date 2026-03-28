@@ -23,7 +23,7 @@
     "google-auth-library": "^9.0.0",
     "googleapis": "^169.0.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^8.0.4",
     "resend": "^6.7.0",
     "serialport": "^12.0.0",
     "socket.io": "^4.8.1"
