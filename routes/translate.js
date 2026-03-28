@@ -1,5 +1,5 @@
 import express from "express";
-import axios from "axios";
+import fetch from "node-fetch";
 
 const router = express.Router();
 
@@ -7,7 +7,7 @@ const router = express.Router();
 const cache = new Map();
 
 router.get("/", async (req, res) => {
-  const { text, language } = req.body;
+  const { text, language } = req.query;
 
   if (!text || !language) {
     return res.status(400).json({ error: "Missing text or language" });
@@ -22,17 +22,11 @@ router.get("/", async (req, res) => {
     }
 
     // ✅ call Scratch API
-    const response = await axios.get(
-      "https://translate-service.scratch.mit.edu/translate",
-      {
-        params: {
-          language,
-          text,
-        },
-      }
+    const response = await fetch(
+      `https://translate-service.scratch.mit.edu/translate?language=${language}&text=${encodeURIComponent(text)}`
     );
 
-    const data = response.data;
+    const data = await response.json();
 
     // ✅ save cache
     cache.set(key, data);

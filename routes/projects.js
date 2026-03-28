@@ -111,6 +111,69 @@ router.get("/my-projects", authenticateToken, async (req, res) => {
   }
 });
 
+// Search public projects and current user's private projects
+router.get("/search", optionalAuth, async (req, res) => {
+  const { q } = req.query;
+
+  if (typeof q !== "string") {
+    return res.json([]);
+  }
+
+  const normalizedQuery = q.trim();
+
+  if (normalizedQuery.length < 2) {
+    return res.json([]);
+  }
+
+  const keywords = normalizedQuery
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  try {
+    const projects = await prisma.project.findMany({
+      where: {
+        AND: [
+          {
+            OR: [
+              { isPublic: true },
+              ...(req.user ? [{ authorId: req.user.id }] : []),
+            ],
+          },
+          {
+            OR: [
+              {
+                title: {
+                  contains: normalizedQuery,
+                  mode: "insensitive",
+                },
+              },
+              {
+                description: {
+                  contains: normalizedQuery,
+                  mode: "insensitive",
+                },
+              },
+              {
+                tags: {
+                  hasSome: keywords,
+                },
+              },
+            ],
+          },
+        ],
+      },
+      orderBy: [{ views: "desc" }, { createdAt: "desc" }],
+      take: 20,
+    });
+
+    res.json(projects);
+  } catch (error) {
+    console.error("Search error:", error);
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
 // Get a specific project by ID
 router.get("/:id", optionalAuth, async (req, res) => {
   
