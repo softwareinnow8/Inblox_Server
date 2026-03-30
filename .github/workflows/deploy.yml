@@ -1,0 +1,33 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "🚀 Starting deployment"
+
+            cd /home/ubuntu/Inblox-Backend
+
+            echo "📥 Pulling latest code"
+            git pull origin main
+
+            echo "📦 Installing dependencies"
+            npm ci
+
+            echo "🔁 Reloading backend"
+            pm2 reload inblox-backend
+
+            echo "✅ Deployment complete"
