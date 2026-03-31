@@ -1,4 +1,4 @@
-import BoardCatalog from '../models/BoardCatalog.js';
+import prisma from '../prismaClient.js';
 
 const DEFAULT_BOARDS = [
     {
@@ -101,20 +101,20 @@ const mapBoard = board => ({
 });
 
 export const ensureBoardCatalogSeeded = async () => {
-    const count = await BoardCatalog.countDocuments({});
+    const count = await prisma.boardCatalog.count();
     if (count > 0) return;
 
-    await BoardCatalog.insertMany(DEFAULT_BOARDS.map(board => ({
-        ...board,
-        isActive: true
-    })));
+    await prisma.boardCatalog.createMany({
+        data: DEFAULT_BOARDS.map(board => ({ ...board, isActive: true }))
+    });
 };
 
 export const getBoardCatalog = async () => {
     await ensureBoardCatalogSeeded();
-    const boards = await BoardCatalog.find({isActive: true})
-        .sort({sortOrder: 1, label: 1})
-        .lean();
+    const boards = await prisma.boardCatalog.findMany({
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }]
+    });
     return boards.map(mapBoard);
 };
 

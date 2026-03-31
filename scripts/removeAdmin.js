@@ -1,6 +1,4 @@
-import mongoose from "mongoose";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -13,9 +11,8 @@ dotenv.config();
 
 const removeAdmin = async (email) => {
     try {
-        // Connect to MongoDB
-        await mongoose.connect(process.env.DATABASE_URL || process.env.MONGO_URI);
-        console.log("✅ Connected to MongoDB");
+        await prisma.$connect();
+        console.log("✅ Connected to Postgres");
 
         if (!email) {
             console.error("❌ Error: Email is required");
@@ -25,7 +22,9 @@ const removeAdmin = async (email) => {
         }
 
         // Find user by email
-        const user = await User.findOne({ email: email.toLowerCase() });
+        const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase() },
+        });
 
         if (!user) {
             console.error(`❌ Error: No user found with email: ${email}`);
@@ -33,7 +32,9 @@ const removeAdmin = async (email) => {
         }
 
         // Check if user is admin
-        const adminRecord = await Admin.findOne({ userId: user._id });
+        const adminRecord = await prisma.admin.findFirst({
+            where: { userId: user.id },
+        });
 
         if (!adminRecord) {
             console.log(`⚠️  User ${user.email} is not an admin`);
@@ -48,12 +49,15 @@ const removeAdmin = async (email) => {
         }
 
         // Deactivate admin
-        adminRecord.isActive = false;
-        await adminRecord.save();
+        await prisma.admin.update({
+            where: { id: adminRecord.id },
+            data: { isActive: false },
+        });
 
-        // Remove isAdmin flag from User model
-        user.isAdmin = false;
-        await user.save();
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { isAdmin: false },
+        });
 
         console.log("\n✅ Successfully removed admin privileges!\n");
         console.log("User Details:");
@@ -68,7 +72,9 @@ const removeAdmin = async (email) => {
         console.log("─────────────────────────────────\n");
 
         // Show remaining admin count
-        const remainingAdmins = await Admin.countDocuments({ isActive: true });
+        const remainingAdmins = await prisma.admin.count({
+            where: { isActive: true },
+        });
         console.log(`📊 Remaining Active Admins: ${remainingAdmins}\n`);
 
         if (remainingAdmins === 0) {
@@ -77,9 +83,11 @@ const removeAdmin = async (email) => {
             console.log("   node scripts/makeAdmin.js <email>\n");
         }
 
+        await prisma.$disconnect();
         process.exit(0);
     } catch (error) {
         console.error("❌ Error:", error.message);
+        await prisma.$disconnect();
         process.exit(1);
     }
 };

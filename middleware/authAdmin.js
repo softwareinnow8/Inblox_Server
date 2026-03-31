@@ -1,6 +1,5 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 
 // Middleware to verify admin token (supports both cookies and Authorization header)
 const authenticateAdmin = async (req, res, next) => {
@@ -20,7 +19,7 @@ const authenticateAdmin = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         console.log(`✅ Token verified for userId: ${decoded.userId}`);
         
-        const user = await User.findById(decoded.userId);
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
         console.log(`👤 User found: ${user?.username || 'NOT FOUND'}`);
 
         if (!user) {
@@ -32,9 +31,11 @@ const authenticateAdmin = async (req, res, next) => {
         }
 
         // Check if user is an active admin in Admin collection
-        const adminRecord = await Admin.findOne({ 
-            userId: user._id, 
-            isActive: true 
+        const adminRecord = await prisma.admin.findFirst({
+            where: {
+                userId: user.id,
+                isActive: true,
+            },
         });
 
         console.log(`🔑 Admin record found: ${adminRecord ? 'YES' : 'NO'}`);
@@ -47,8 +48,10 @@ const authenticateAdmin = async (req, res, next) => {
         }
 
         // Update last accessed timestamp
-        adminRecord.lastAccessedAt = new Date();
-        await adminRecord.save();
+        await prisma.admin.update({
+            where: { id: adminRecord.id },
+            data: { lastAccessedAt: new Date() },
+        });
 
         console.log(`✅ Admin middleware passed for ${user.username}`);
 
@@ -80,7 +83,7 @@ const authenticateSuperAdmin = async (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.userId);
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
 
         if (!user) {
             return res.status(401).json({ error: "User not found" });
@@ -90,9 +93,11 @@ const authenticateSuperAdmin = async (req, res, next) => {
             return res.status(403).json({ error: "Account has been deleted" });
         }
 
-        const adminRecord = await Admin.findOne({ 
-            userId: user._id, 
-            isActive: true 
+        const adminRecord = await prisma.admin.findFirst({
+            where: {
+                userId: user.id,
+                isActive: true,
+            },
         });
 
         if (!adminRecord) {

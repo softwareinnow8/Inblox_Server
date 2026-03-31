@@ -1,5 +1,5 @@
 import express from "express";
-import Update from "../models/Update.js";
+import prisma from "../prismaClient.js";
 import requireAdmin from "../middleware/requireAdmin.js";
 
 const adminUpdateRoutes = express.Router();
@@ -24,8 +24,8 @@ const toDateValue = (input) => {
 const serializeUpdate = (update) => {
   const publishedAt = update.publishedAt || update.createdAt || new Date();
   return {
-    _id: update._id,
-    id: `${update._id}`,
+    _id: update.id,
+    id: update.id,
     title: update.title,
     description: update.description,
     date: publishedAt.toLocaleDateString("en-US", {
@@ -79,10 +79,11 @@ publicUpdateRoutes.get("/", async (req, res) => {
       ? Math.max(1, Math.min(rawLimit, 200))
       : 50;
 
-    const updates = await Update.find({ isDeleted: false, isPublished: true })
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .limit(limit)
-      .lean();
+    const updates = await prisma.update.findMany({
+      where: { isDeleted: false, isPublished: true },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: limit,
+    });
 
     return res.json({
       success: true,
@@ -98,11 +99,12 @@ publicUpdateRoutes.get("/", async (req, res) => {
 adminUpdateRoutes.get("/", requireAdmin(), async (req, res) => {
   try {
     const includeDeleted = req.query.includeDeleted === "true";
-    const filter = includeDeleted ? {} : { isDeleted: false };
+    const where = includeDeleted ? {} : { isDeleted: false };
 
-    const updates = await Update.find(filter)
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .lean();
+    const updates = await prisma.update.findMany({
+      where,
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    });
 
     return res.json({
       success: true,
@@ -123,18 +125,20 @@ adminUpdateRoutes.post("/", requireAdmin({ allowedRoles: ["super-admin"] }), asy
       return res.status(400).json({ error: validationError });
     }
 
-    const created = await Update.create({
-      ...payload,
-      createdBy: req.user?._id || null,
-      updatedBy: req.user?._id || null,
-      publishedAt: payload.publishedAt || new Date(),
-      isPublished: typeof payload.isPublished === "boolean" ? payload.isPublished : true,
+    const created = await prisma.update.create({
+      data: {
+        ...payload,
+        createdById: req.user?.id || null,
+        updatedById: req.user?.id || null,
+        publishedAt: payload.publishedAt || new Date(),
+        isPublished: typeof payload.isPublished === "boolean" ? payload.isPublished : true,
+      },
     });
 
     return res.status(201).json({
       success: true,
       message: "Update created successfully",
-      update: serializeUpdate(created.toObject()),
+      update: serializeUpdate(created),
     });
   } catch (error) {
     console.error("Failed to create update:", error);
@@ -158,28 +162,26 @@ adminUpdateRoutes.patch("/:id", requireAdmin({ allowedRoles: ["super-admin"] }),
       return res.status(400).json({ error: validationError });
     }
 
-    const updateData = {
-      updatedBy: req.user?._id || null,
-    };
+    // verify it exists and is not deleted
+    const existing = await prisma.update.findFirst({
+      where: { id: req.params.id, isDeleted: false },
+    });
+    if (!existing) {
+      return res.status(404).json({ error: "Update not found" });
+    }
 
+    const updateData = { updatedById: req.user?.id || null };
     if (hasTitle) updateData.title = payload.title;
     if (hasDescription) updateData.description = payload.description;
     if (Object.prototype.hasOwnProperty.call(payload, "isPublished")) {
       updateData.isPublished = payload.isPublished;
     }
-    if (payload.publishedAt) {
-      updateData.publishedAt = payload.publishedAt;
-    }
+    if (payload.publishedAt) updateData.publishedAt = payload.publishedAt;
 
-    const updated = await Update.findOneAndUpdate(
-      { _id: req.params.id, isDeleted: false },
-      updateData,
-      { new: true, runValidators: true }
-    ).lean();
-
-    if (!updated) {
-      return res.status(404).json({ error: "Update not found" });
-    }
+    const updated = await prisma.update.update({
+      where: { id: req.params.id },
+      data: updateData,
+    });
 
     return res.json({
       success: true,
@@ -192,53 +194,27 @@ adminUpdateRoutes.patch("/:id", requireAdmin({ allowedRoles: ["super-admin"] }),
   }
 });
 
-// adminUpdateRoutes.delete("/:id", requireAdmin({ allowedRoles: ["super-admin"] }), async (req, res) => {
-//   try {
-//     const deleted = await Update.findByIdAndUpdate(
-//       req.params.id,
-//       {
-//         isDeleted: true,
-//         isPublished: false,
-//         deletedAt: new Date(),
-//         updatedBy: req.user?._id || null,
-//       },
-//       { new: true }
-//     ).lean();
-
-//     if (!deleted) {
-//       return res.status(404).json({ error: "Update not found" });
-//     }
-
-//     return res.json({
-//       success: true,
-//       message: "Update deleted successfully",
-//       update: serializeUpdate(deleted),
-//     });
-//   } catch (error) {
-//     console.error("Failed to delete update:", error);
-//     return res.status(500).json({ error: "Failed to delete update" });
-//   }
-// });
-
 adminUpdateRoutes.post(
   "/:id/delete",
   requireAdmin({ allowedRoles: ["super-admin"] }),
   async (req, res) => {
     try {
-      const deleted = await Update.findOneAndUpdate(
-        { _id: req.params.id, isDeleted: false },
-        {
+      const existing = await prisma.update.findFirst({
+        where: { id: req.params.id, isDeleted: false },
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Update not found" });
+      }
+
+      const deleted = await prisma.update.update({
+        where: { id: req.params.id },
+        data: {
           isDeleted: true,
           isPublished: false,
           deletedAt: new Date(),
-          updatedBy: req.user?._id || null,
+          updatedById: req.user?.id || null,
         },
-        { new: true }
-      ).lean();
-
-      if (!deleted) {
-        return res.status(404).json({ error: "Update not found" });
-      }
+      });
 
       return res.json({
         success: true,

@@ -1,0 +1,266 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String    @id @default(uuid())
+  username                 String    @unique
+  email                    String    @unique
+  password                 String?
+  firstName                String?
+  lastName                 String?
+  avatar                   String?
+  profilePicture           String?
+  googleId                 String?   @unique
+  authProvider             String    @default("local")
+  isVerified               Boolean   @default(false)
+  isEmailVerified          Boolean   @default(false)
+  emailVerificationToken   String?
+  emailVerificationExpires DateTime?
+  passwordResetToken       String?
+  passwordResetExpires     DateTime?
+  lastLogin                DateTime? @default(now())
+  isAdmin                  Boolean   @default(false)
+  isDeleted                Boolean   @default(false)
+  deletedAt                DateTime?
+  deletedById              String?
+  deletedBy                User?     @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  projects      Project[] @relation("UserProjects")
+  adminRecord   Admin?    @relation("AdminUser")
+  createdAdmins Admin[]   @relation("AdminCreatedBy")
+  deletedUsers  User[]    @relation("UserDeletedBy")
+  contactMessages            ContactMessage[] @relation("ContactMessageUser")
+  resolvedContactMessages    ContactMessage[] @relation("ContactMessageResolvedBy")
+  deletedContactMessages     ContactMessage[] @relation("ContactMessageDeletedBy")
+  projectLikes    ProjectLike[]    @relation("UserProjectLikes")
+  projectDislikes ProjectDislike[] @relation("UserProjectDislikes")
+  createdUpdates  Update[]         @relation("UpdateCreatedBy")
+  updatedUpdates  Update[]         @relation("UpdateUpdatedBy")
+  customBlocksCreated CustomBlock[] @relation("CustomBlockCreatedBy")
+
+  @@index([email])
+  @@index([username])
+}
+
+model ContactMessage {
+  id          String   @id @default(uuid())
+  userId      String?
+  name        String
+  email       String
+  subject     String
+  message     String
+  status      String   @default("pending")
+  priority    String   @default("medium")
+  category    String   @default("general")
+  adminNotes  String   @default("")
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  deletedBy   String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user            User? @relation("ContactMessageUser", fields: [userId], references: [id], onDelete: SetNull)
+  resolvedByUser  User? @relation("ContactMessageResolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
+  deletedByUser   User? @relation("ContactMessageDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  @@index([email, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([isDeleted, createdAt])
+}
+
+model Admin {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  role           String   @default("admin")
+  permissions    Json
+  createdById    String?
+  notes          String   @default("")
+  isActive       Boolean  @default(true)
+  lastAccessedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user      User  @relation("AdminUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("AdminCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([isActive])
+  @@index([role])
+}
+
+model Project {
+  id                String    @id @default(uuid())
+  title             String    @default("Untitled Project")
+  description       String?   @default("")
+  projectData       Json
+  thumbnail         String?
+  isPublic          Boolean   @default(false)
+  isShared          Boolean   @default(false)
+  authorId          String
+  authorUsername    String
+  views             Int       @default(0)
+  likes             Int       @default(0)
+  dislikes          Int       @default(0)
+  remixCount        Int       @default(0)
+  originalProjectId String?
+  tags              String[]
+  isRemix           Boolean   @default(false)
+  isCopy            Boolean   @default(false)
+  lastModified      DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  author          User           @relation("UserProjects", fields: [authorId], references: [id], onDelete: Cascade)
+  originalProject Project?       @relation("ProjectRemix", fields: [originalProjectId], references: [id], onDelete: SetNull)
+  remixes         Project[]      @relation("ProjectRemix")
+  likedBy         ProjectLike[]  @relation("ProjectLikes")
+  dislikedBy      ProjectDislike[] @relation("ProjectDislikes")
+
+  @@index([authorId, createdAt])
+  @@index([isPublic, createdAt])
+}
+
+model ProjectLike {
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project Project @relation("ProjectLikes", fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserProjectLikes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@map("project_likes")
+}
+
+model ProjectDislike {
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project Project @relation("ProjectDislikes", fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserProjectDislikes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@map("project_dislikes")
+}
+
+model BoardCatalog {
+  id           String   @id @default(uuid())
+  boardId      String   @unique
+  label        String
+  type         String   @default("")
+  image        String   @default("")
+  description  String   @default("")
+  isComingSoon Boolean  @default(false)
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive, sortOrder, label])
+  @@map("board_catalogs")
+}
+
+model BuiltInBoardBlock {
+  id         String   @id @default(uuid())
+  board      String
+  boardLabel String   @default("")
+  heading    String   @default("General")
+  name       String
+  opcode     String   @default("")
+  text       String   @default("")
+  blockType  String   @default("")
+  arguments  Json     @default("{}")
+  menus      Json     @default("{}")
+  color1     String   @default("")
+  color2     String   @default("")
+  color3     String   @default("")
+  blockIconURI String @default("")
+  menuIconURI  String @default("")
+  globalCode String   @default("")
+  setupCode  String   @default("")
+  loopCode   String   @default("")
+  runtimeHandler String @default("")
+  sortOrder  Int      @default(0)
+  sourceFile String   @default("")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([board, heading, name, opcode])
+  @@index([board, isActive, heading, name])
+  @@map("built_in_board_blocks")
+}
+
+model CustomBlock {
+  id          String   @id @default(uuid())
+  board       String
+  boardLabel  String   @default("")
+  name        String
+  category    String
+  color       String   @default("#FF9500")
+  blockType   String
+  blockText   String
+  opcode      String   @default("")
+  sourceFile  String   @default("")
+  arguments   Json     @default("[]")
+  globalCode  String   @default("")
+  setupCode   String   @default("")
+  loopCode    String   @default("")
+  libraries   String[] @default([])
+  version     Int      @default(1)
+  isBuiltIn   Boolean  @default(false)
+  isPublished Boolean  @default(false)
+  createdById String?
+  creatorType String   @default("user")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User?    @relation("CustomBlockCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([name, version])
+  @@index([isPublished, name, version])
+  @@index([board, isBuiltIn, category, name])
+  @@index([createdById, createdAt])
+  @@map("custom_blocks")
+}
+
+model Update {
+  id          String    @id @default(uuid())
+  title       String
+  description String
+  publishedAt DateTime  @default(now())
+  isPublished Boolean   @default(true)
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  createdBy User? @relation("UpdateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("UpdateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([isDeleted, isPublished, publishedAt])
+  @@index([createdAt])
+  @@map("updates")
+}

@@ -1,8 +1,8 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import bcrypt from "bcryptjs";
+import prisma from "../prismaClient.js";
 import { JWT_SECRET } from "../middleware/auth.js";
 import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
@@ -10,6 +10,10 @@ import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeConfir
 // import { sendVerificationEmail,sendEmail } from "../services/emailService.js";
 import dotenv from 'dotenv';
 import validatePassword from "../utils/passwordValidator.js";
+import {
+  authLimiter,
+  sensitiveAuthLimiter,
+} from "../middleware/rateLimiter.js";
 dotenv.config();
 
 const router = express.Router();
@@ -24,7 +28,9 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Helper function to check if user is admin
 const checkAdminStatus = async (userId) => {
-  const adminRecord = await Admin.findOne({ userId, isActive: true });
+  const adminRecord = await prisma.admin.findFirst({
+    where: { userId, isActive: true },
+  });
   return {
     isAdmin: !!adminRecord,
     adminRole: adminRecord?.role || null,
@@ -44,8 +50,32 @@ const generateToken = (userId, isAdmin = false) => {
   );
 };
 
+// ✅ Helper function to get proper cookie options (works on localhost AND production)
+const getCookieOptions = () => {
+  const isLocalhost = process.env.NODE_ENV !== "production";
+  
+  const options = {
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/',
+  };
+  
+  if (isLocalhost) {
+    // For localhost: NO secure flag (allows http://localhost)
+    options.secure = false;
+    options.sameSite = 'Lax';
+  } else {
+    // For production: REQUIRE https
+    options.secure = true;
+    options.sameSite = 'None'; // Required when secure=true on cross-origin
+  }
+  
+  console.log(`🍪 Cookie config - Localhost: ${isLocalhost}, Options:`, options);
+  return options;
+};
+
 // Sign up route
-router.post("/signup", async (req, res) => {
+router.post("/signup", authLimiter, async (req, res) => {
   try {
     const { username, email, password, firstName, lastName } = req.body;
 
@@ -67,12 +97,13 @@ if (passwordError) {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({
-      $or: [{ email }, { username }],
+    const normalizedEmail = email.toLowerCase();
+    const existingUser = await prisma.user.findFirst({
+      where: { OR: [{ email: normalizedEmail }, { username }] },
     });
 
     if (existingUser) {
-      if (existingUser.email === email) {
+      if (existingUser.email === normalizedEmail) {
         return res.status(400).json({ error: "Email already registered" });
       }
       if (existingUser.username === username) {
@@ -85,19 +116,21 @@ if (passwordError) {
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     // Create new user
-    const user = new User({
-      username,
-      email,
-      password,
-      firstName,
-      lastName,
-      authProvider: 'local',
-      isEmailVerified: false,
-      emailVerificationToken: verificationToken,
-      emailVerificationExpires: verificationExpires,
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: {
+        username,
+        email: normalizedEmail,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        authProvider: "local",
+        isEmailVerified: false,
+        isVerified: false,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpires: verificationExpires,
+      },
     });
-
-    await user.save();
 
     // Send verification email
     try {
@@ -109,18 +142,15 @@ if (passwordError) {
     }
 
     // Check admin status (should be false for new users)
-    const adminStatus = await checkAdminStatus(user._id);
+    const adminStatus = await checkAdminStatus(user.id);
 
     // Generate token (but user still needs to verify email)
-    const token = generateToken(user._id, adminStatus.isAdmin);
+    const token = generateToken(user.id, adminStatus.isAdmin);
 
-    // Set HttpOnly cookie
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    // Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", token, cookieOptions);
+    console.log("✅ Cookie set for signup");
 
     res.status(201).json({
       message: "Account created! Please check your email to verify your account before signing in.",
@@ -128,7 +158,7 @@ if (passwordError) {
       email: user.email,
       // ❌ Don't return token - user must verify email first
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         firstName: user.firstName,
@@ -138,8 +168,8 @@ if (passwordError) {
     });
   } catch (error) {
     console.error("Signup error:", error);
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
+    if (error?.code === "P2002") {
+      const field = error?.meta?.target?.[0] || "field";
       return res.status(400).json({ error: `${field} already exists` });
     }
     res.status(500).json({ error: "Server error during registration" });
@@ -147,7 +177,7 @@ if (passwordError) {
 });
 
 // Sign in route
-router.post("/signin", async (req, res) => {
+router.post("/signin", authLimiter, async (req, res) => {
   try {
     const { identifier, password } = req.body; // identifier can be username or email
 
@@ -158,8 +188,10 @@ router.post("/signin", async (req, res) => {
     }
 
     // Find user by username or email
-    const user = await User.findOne({
-      $or: [{ email: identifier.toLowerCase() }, { username: identifier }],
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [{ email: identifier.toLowerCase() }, { username: identifier }],
+      },
     });
 
     if (!user) {
@@ -180,33 +212,34 @@ router.post("/signin", async (req, res) => {
     }
 
     // Check password
-    const isPasswordValid = await user.comparePassword(password);
+    const isPasswordValid = user.password
+      ? await bcrypt.compare(password, user.password)
+      : false;
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     // Update last login
-    user.lastLogin = new Date();
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
 
     // Check admin status from Admin collection
-    const adminStatus = await checkAdminStatus(user._id);
+    const adminStatus = await checkAdminStatus(user.id);
 
     // Generate token
-    const token = generateToken(user._id, adminStatus.isAdmin);
+    const token = generateToken(user.id, adminStatus.isAdmin);
 
-    // Set HttpOnly cookie
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Lax",
-      maxAge: 24 * 60 * 60 * 1000
-    });
+    // Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", token, cookieOptions);
+    console.log("✅ Cookie set for signin");
 
     res.json({
       message: "Sign in successful",
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         firstName: user.firstName,
@@ -299,70 +332,74 @@ router.get("/google/callback", async (req, res) => {
     }
 
     // Find or create user
-    let user = await User.findOne({
-      $or: [{ googleId: sub }, { email: email.toLowerCase() }]
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [{ googleId: sub }, { email: email.toLowerCase() }],
+      },
     });
 
     if (!user) {
       // Create new user
-      let username = email.split('@')[0];
-      
+      const emailLocalPart = email.split("@")[0];
+      let username = emailLocalPart;
+
       // Generate unique username
-      let existingUser = await User.findOne({ username });
+      let existingUser = await prisma.user.findUnique({ where: { username } });
       let counter = 1;
       while (existingUser) {
-        username = `${email.split('@')[0]}${counter}`;
-        existingUser = await User.findOne({ username });
-        counter++;
+        username = `${emailLocalPart}${counter}`;
+        existingUser = await prisma.user.findUnique({ where: { username } });
+        counter += 1;
       }
 
-      user = new User({
-        username,
-        email: email.toLowerCase(),
-        firstName: given_name || 'User',
-        lastName: family_name || '',
-        avatar: picture || null,
-        googleId: sub,
-        googleEmail: email,
-        authProvider: 'google',
-        password: null,
-
-        isEmailVerified: true,
-        isVerified: true
+      user = await prisma.user.create({
+        data: {
+          username,
+          email: email.toLowerCase(),
+          firstName: given_name || "User",
+          lastName: family_name || "",
+          avatar: picture || null,
+          googleId: sub,
+          authProvider: "google",
+          password: null,
+          isEmailVerified: true,
+          isVerified: true,
+        },
       });
-
-      await user.save();
     } else {
       // Update existing user
+      const updateData = {
+        authProvider: "google",
+      };
       if (user.googleId !== sub) {
-        user.googleId = sub;
+        updateData.googleId = sub;
       }
-      if (!user.googleEmail) {
-        user.googleEmail = email;
-      }
-      user.authProvider = 'google';
       if (!user.avatar && picture) {
-        user.avatar = picture;
+        updateData.avatar = picture;
       }
+
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: updateData,
+      });
     }
 
     // Update last login
-    user.lastLogin = new Date();
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
 
     // Check admin status from Admin collection
-    const adminStatus = await checkAdminStatus(user._id);
+    const adminStatus = await checkAdminStatus(user.id);
 
     // Generate JWT token
-    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
+    const jwtToken = generateToken(user.id, adminStatus.isAdmin);
 
-    // ✅ Set HttpOnly cookie (SECURE)
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,          // ❗ JavaScript cannot access
-      secure: process.env.NODE_ENV === "production", // true in production
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", // Required for cross-site
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    // ✅ Set HttpOnly cookie using smart options (localhost + production compatible)
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Google OAuth: Cookie set");
 
     // Redirect to frontend (no token in URL)
     res.redirect(`${FRONTEND_URL}/#/`);
@@ -386,9 +423,11 @@ router.get("/verify-email/:token", async (req, res) => {
     }
 
     // Find user with valid token
-    const user = await User.findOne({
-      emailVerificationToken: token,
-      emailVerificationExpires: { $gt: Date.now() }
+    const user = await prisma.user.findFirst({
+      where: {
+        emailVerificationToken: token,
+        emailVerificationExpires: { gt: new Date() },
+      },
     });
 
     if (!user) {
@@ -402,25 +441,26 @@ router.get("/verify-email/:token", async (req, res) => {
     }
 
     // Verify the user
-    user.isEmailVerified = true;
-    user.isVerified = true;
-    user.emailVerificationToken = null;
-    user.emailVerificationExpires = null;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        isVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+      },
+    });
 
     console.log(`Email verified successfully for user: ${user.email}`);
 
     // Check admin status from Admin collection
-    const adminStatus = await checkAdminStatus(user._id);
+    const adminStatus = await checkAdminStatus(user.id);
 
-    // Create session (same behavior as Google OAuth)
-    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    // Create session using smart cookie options
+    const jwtToken = generateToken(user.id, adminStatus.isAdmin);
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Email verification: Cookie set");
 
     // Redirect the user to the frontend app with success status
     return res.redirect(`${FRONTEND_URL}/#/?email_verification=success`);
@@ -431,7 +471,7 @@ router.get("/verify-email/:token", async (req, res) => {
 });
 
 // Accept invite and complete user profile
-router.post("/accept-invite", async (req, res) => {
+router.post("/accept-invite", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { token, username, firstName, lastName, password } = req.body;
 
@@ -450,9 +490,11 @@ router.post("/accept-invite", async (req, res) => {
       return res.status(400).json({ error: passwordError });
     }
 
-    const user = await User.findOne({
-      emailVerificationToken: token,
-      emailVerificationExpires: { $gt: Date.now() },
+    const user = await prisma.user.findFirst({
+      where: {
+        emailVerificationToken: token,
+        emailVerificationExpires: { gt: new Date() },
+      },
     });
 
     if (!user) {
@@ -469,40 +511,42 @@ router.post("/accept-invite", async (req, res) => {
       });
     }
 
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername && existingUsername._id.toString() !== user._id.toString()) {
+    const existingUsername = await prisma.user.findUnique({ where: { username } });
+    if (existingUsername && existingUsername.id !== user.id) {
       return res.status(400).json({ error: "Username already taken" });
     }
 
-    user.username = username;
-    user.firstName = firstName;
-    user.lastName = lastName;
-    user.password = password;
-    user.isEmailVerified = true;
-    user.isVerified = true;
-    user.emailVerificationToken = null;
-    user.emailVerificationExpires = null;
-    user.lastLogin = new Date();
-    await user.save();
-
-    const adminStatus = await checkAdminStatus(user._id);
-    const jwtToken = generateToken(user._id, adminStatus.isAdmin);
-    res.cookie("auth_token", jwtToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        username,
+        firstName,
+        lastName,
+        password: hashedPassword,
+        isEmailVerified: true,
+        isVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+        lastLogin: new Date(),
+      },
     });
+
+    const adminStatus = await checkAdminStatus(updatedUser.id);
+    const jwtToken = generateToken(updatedUser.id, adminStatus.isAdmin);
+    const cookieOptions = getCookieOptions();
+    res.cookie("auth_token", jwtToken, cookieOptions);
+    console.log("✅ Accept invite: Cookie set");
 
     res.json({
       message: "Invite accepted successfully",
       user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        isEmailVerified: user.isEmailVerified,
+        id: updatedUser.id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        isEmailVerified: updatedUser.isEmailVerified,
       },
     });
   } catch (error) {
@@ -512,7 +556,7 @@ router.post("/accept-invite", async (req, res) => {
 });
 
 // Resend verification email
-router.post("/resend-verification", async (req, res) => {
+router.post("/resend-verification", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -520,7 +564,9 @@ router.post("/resend-verification", async (req, res) => {
       return res.status(400).json({ error: "Email is required" });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
 
     if (!user) {
       // Don't reveal if user exists or not for security
@@ -543,9 +589,15 @@ router.post("/resend-verification", async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationExpires = verificationExpires;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationToken: verificationToken,
+        emailVerificationExpires: verificationExpires,
+        isEmailVerified: false,
+        isVerified: false,
+      },
+    });
 
     // Send verification email
     try {
@@ -571,7 +623,7 @@ router.post("/resend-verification", async (req, res) => {
 // ================================
 
 // Request password reset
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -579,7 +631,9 @@ router.post("/forgot-password", async (req, res) => {
       return res.status(400).json({ error: "Email is required" });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
 
     if (!user) {
       // Don't reveal if user exists or not for security
@@ -599,9 +653,13 @@ router.post("/forgot-password", async (req, res) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    user.passwordResetToken = resetToken;
-    user.passwordResetExpires = resetExpires;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: resetToken,
+        passwordResetExpires: resetExpires,
+      },
+    });
 
     // Send password reset email
     try {
@@ -631,9 +689,11 @@ router.get("/reset-password/:token", async (req, res) => {
       return res.status(400).json({ error: "Reset token is required" });
     }
 
-    const user = await User.findOne({
-      passwordResetToken: token,
-      passwordResetExpires: { $gt: Date.now() }
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpires: { gt: new Date() },
+      },
     });
 
     if (!user) {
@@ -655,7 +715,7 @@ router.get("/reset-password/:token", async (req, res) => {
 });
 
 // Reset password with token
-router.post("/reset-password/:token", async (req, res) => {
+router.post("/reset-password/:token", sensitiveAuthLimiter, async (req, res) => {
   try {
     const { token } = req.params;
     const { password } = req.body;
@@ -675,9 +735,11 @@ if (passwordError) {
 
 
     // Find user with valid token
-    const user = await User.findOne({
-      passwordResetToken: token,
-      passwordResetExpires: { $gt: Date.now() }
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpires: { gt: new Date() },
+      },
     });
 
     if (!user) {
@@ -688,10 +750,15 @@ if (passwordError) {
     }
 
     // Update password
-    user.password = password; // Will be hashed by pre-save hook
-    user.passwordResetToken = null;
-    user.passwordResetExpires = null;
-    await user.save();
+    const hashedPassword = await bcrypt.hash(password, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      },
+    });
 
     // Send confirmation email
     try {
@@ -710,6 +777,28 @@ if (passwordError) {
     console.error("Reset password error:", error);
     res.status(500).json({ error: "Server error during password reset" });
   }
+});
+
+// ================================
+// DEBUG: Check if cookies are working
+// ================================
+router.get("/debug/cookies", (req, res) => {
+  console.log("🍪 DEBUG: Checking cookies...");
+  console.log("Request Cookies:", req.cookies);
+  console.log("Request Headers:", req.headers.cookie);
+  console.log("NODE_ENV:", process.env.NODE_ENV);
+  
+  res.json({
+    message: "Debug endpoint - Check server logs for cookie details",
+    receivedCookies: req.cookies,
+    cookieHeader: req.headers.cookie || "No cookies in request",
+    nodeEnv: process.env.NODE_ENV,
+    cookieConfig: {
+      isLocalhost: process.env.NODE_ENV !== "production",
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax"
+    }
+  });
 });
 
 export default router;

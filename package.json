@@ -12,18 +12,18 @@
     "import:built-in-blocks": "node scripts/import-built-in-board-blocks.js"
   },
   "dependencies": {
+    "@prisma/client": "^5.20.0",
     "axios": "^1.6.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.18.3",
-    "express-rate-limit": "^8.3.1",
+    "express-rate-limit": "^8.3.2",
     "google-auth-library": "^9.0.0",
     "googleapis": "^169.0.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^8.20.0",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^8.0.4",
     "resend": "^6.7.0",
     "serialport": "^12.0.0",
     "socket.io": "^4.8.1"
@@ -40,6 +40,7 @@
     ".env.example"
   ],
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "prisma": "^5.20.0"
   }
 }

@@ -1,5 +1,4 @@
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
 import cookieParser from "cookie-parser"; 
 import bcrypt from "bcryptjs";
@@ -26,61 +25,8 @@ import connectDB from "./db.js";
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001; // Force backend to use port 3001
-
-// Trust first proxy (Render/Nginx/Cloudflare) so req.ip is correct for rate limiting.
-app.set("trust proxy", 1);
-
-// ============================================================
-// Rate Limiters
-// ============================================================
-
-// Helper to build a rate limiter with a custom message
-const makeRateLimiter = (windowMinutes, max, label) =>
-  rateLimit({
-    windowMs: windowMinutes * 60 * 1000,
-    max,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: {
-      success: false,
-      error: `Too many ${label} requests. Please wait and try again.`,
-    },
-  });
-
-// Global fallback: 200 req / 15 min per IP
-const globalLimiter = makeRateLimiter(15, 200, "");
-
-// Auth — brute-force protection (signin / signup)
-const authLimiter = makeRateLimiter(15, 10, "authentication");
-
-// Sensitive one-off auth actions (forgot-password, resend-verification, accept-invite)
-const sensitiveAuthLimiter = makeRateLimiter(15, 5, "password-reset/verification");
-
-// Arduino compile — expensive server-side compute
-const compileLimiter = makeRateLimiter(15, 20, "compilation");
-
-// Contact form — anti-spam
-const contactLimiter = makeRateLimiter(60, 5, "contact form");
-
-// Project writes (create / update / delete / remix)
-const projectWriteLimiter = makeRateLimiter(15, 30, "project write");
-
-// Admin panel
-const adminLimiter = makeRateLimiter(15, 60, "admin");
-
-// Public read-only resources (boards, blocks, updates)
-const publicReadLimiter = makeRateLimiter(15, 200, "public read");
-
-// Apply global limiter to all routes
-app.use(globalLimiter);
-
-mongoose.set("debug", (collectionName, methodName, query, doc) => {
-  console.log(
-    `[DB OP] ${collectionName}.${methodName}`,
-    JSON.stringify({ query, doc })
-  );
-});
 processLogger();
+app.set("trust proxy", 1);
 
 // Import routes
 import authRoutes from "./routes/auth.js";
@@ -95,19 +41,18 @@ import { adminBuiltInBoardBlockRoutes, publicBuiltInBoardBlockRoutes } from "./r
 import { adminUpdateRoutes, publicUpdateRoutes } from "./routes/updates.js";
 import { authenticateAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
+import {
+  adminLimiter,
+  compileLimiter,
+  globalLimiter,
+  publicReadLimiter,
+  authLimiter,
+  sensitiveAuthLimiter,
+} from "./middleware/rateLimiter.js";
+import translateRoutes from "./routes/translate.js";
 
 // Import Arduino Dependency Manager for on-demand installation
 import dependencyManager from "./arduino-dependency-manager.js";
-
-// User model
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
-});
-
-const User = mongoose.models.User || mongoose.model("User", userSchema);
 
 // ✅ CLEAN CORS Configuration - Single source of truth (NO CONFLICTS!)
 const corsOptions = {
@@ -163,6 +108,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(requestLogger);
+app.use(globalLimiter);
 
 // Serve static files from parent directory for compilation test
 app.use('/static', express.static(path.join(__dirname, '..', 'static')));
@@ -205,7 +151,7 @@ app.post('/api/upload-firmware', compileLimiter, async (req, res) => {
     }
 });
 
-// MongoDB connection is now handled by db.js (centralized)
+// PostgreSQL (Prisma) connection is handled by db.js (centralized)
 
 // Arduino Compiler Endpoint - Handle OPTIONS preflight
 app.options("/api/compile", cors());
@@ -785,28 +731,20 @@ app.use("/api/auth/resend-verification", sensitiveAuthLimiter);
 app.use("/api/auth/accept-invite", sensitiveAuthLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/auth", userRoutes);
-
-// Projects: limit write operations
-app.use("/api/projects", projectWriteLimiter, projectRoutes);
-
-// Arduino upload & compile
-app.use("/api/arduino", compileLimiter, arduinoUploadRouter);
-
-// Contact form
-app.use("/api/contact", contactLimiter, contactRoutes);
-
-// Admin routes
+app.use("/api/projects", projectRoutes);
+app.use("/api/arduino", arduinoUploadRouter);
+app.use("/api/contact", contactRoutes);
 app.use("/api/admin", adminLimiter, authenticateAdmin, adminRoutes);
 app.use("/api/admin/custom-blocks", adminLimiter, adminCustomBlockRoutes);
 app.use("/api/admin/boards", adminLimiter, adminBoardCatalogRoutes);
 app.use("/api/admin/built-in-board-blocks", adminLimiter, adminBuiltInBoardBlockRoutes);
 app.use("/api/admin/updates", adminLimiter, adminUpdateRoutes);
-
-// Public read-only resources
 app.use("/api/custom-blocks", publicReadLimiter, publicCustomBlockRoutes);
 app.use("/api/boards", publicReadLimiter, publicBoardCatalogRoutes);
 app.use("/api/built-in-board-blocks", publicReadLimiter, publicBuiltInBoardBlockRoutes);
 app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
+app.use("/api/translate", publicReadLimiter, translateRoutes);
+
 
 // Compatibility route: handle email links like /verify-email?token=...
 // Redirect to the API route /api/auth/verify-email/:token
@@ -900,7 +838,7 @@ app.use("*", (req, res) => {
 // Start server
 const startServer = async () => {
   try {
-    // Connect to MongoDB using centralized connection
+    // Connect to PostgreSQL using centralized Prisma connection
     await connectDB();
     
     app.listen(PORT, () => {

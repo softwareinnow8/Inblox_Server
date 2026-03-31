@@ -1,5 +1,4 @@
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
@@ -29,17 +28,17 @@ import contactRoutes from "./routes/contact.js";
 import { adminUpdateRoutes, publicUpdateRoutes } from "./routes/updates.js";
 import { authenticateAdmin, authenticateSuperAdmin } from "./middleware/authAdmin.js";
 import { requestLogger, processLogger } from "./middleware/requestLogger.js";
+import {
+  adminLimiter,
+  compileLimiter,
+  globalLimiter,
+  publicReadLimiter,
+} from "./middleware/rateLimiter.js";
 
 const app = express();
 const server = http.createServer(app);
-
-mongoose.set("debug", (collectionName, methodName, query, doc) => {
-  console.log(
-    `[DB OP] ${collectionName}.${methodName}`,
-    JSON.stringify({ query, doc })
-  );
-});
 processLogger();
+app.set("trust proxy", 1);
 
 // Middleware
 // Set security headers for OAuth compatibility
@@ -81,8 +80,9 @@ app.use(cookieParser()); // ✅ Parse cookies from requests
 
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(requestLogger);
+app.use(globalLimiter);
 
-// MongoDB connection is now handled by db.js (centralized)
+// PostgreSQL (Prisma) connection is handled by db.js (centralized)
 
 // Socket.IO setup
 const io = new Server(server, {
@@ -178,7 +178,7 @@ io.on("connection", (socket) => {
 });
 
 // Arduino Compiler Endpoint
-app.post("/api/compile", async (req, res) => {
+app.post("/api/compile", compileLimiter, async (req, res) => {
   const { code, board = "arduino:avr:uno" } = req.body;
   
   if (!code) {
@@ -282,9 +282,9 @@ app.use("/api/auth", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/hardware", hardwareRoutes);
 app.use("/api/contact", contactRoutes);
-app.use("/api/admin", authenticateAdmin, adminRoutes);
-app.use("/api/admin/updates", adminUpdateRoutes);
-app.use("/api/updates", publicUpdateRoutes);
+app.use("/api/admin", adminLimiter, authenticateAdmin, adminRoutes);
+app.use("/api/admin/updates", adminLimiter, adminUpdateRoutes);
+app.use("/api/updates", publicReadLimiter, publicUpdateRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
@@ -308,7 +308,7 @@ const startServer = async () => {
   try {
     const PORT = process.env.PORT || 3001;
     
-    // Connect to MongoDB using centralized connection
+    // Connect to PostgreSQL using centralized Prisma connection
     await connectDB();
     
     server.listen(PORT, () => {

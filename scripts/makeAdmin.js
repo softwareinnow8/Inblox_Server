@@ -1,6 +1,4 @@
-import mongoose from "mongoose";
-import User from "../models/User.js";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -15,9 +13,8 @@ dotenv.config();
 
 const makeAdmin = async (email, role = "admin", notes = "") => {
     try {
-        // Connect to MongoDB
-        await mongoose.connect(process.env.DATABASE_URL || process.env.MONGO_URI);
-        console.log("✅ Connected to MongoDB");
+        await prisma.$connect();
+        console.log("✅ Connected to Postgres");
 
         if (!email) {
             console.error("❌ Error: Email is required");
@@ -37,7 +34,9 @@ const makeAdmin = async (email, role = "admin", notes = "") => {
         }
 
         // Find user by email
-        const user = await User.findOne({ email: email.toLowerCase() });
+        const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase() },
+        });
 
         if (!user) {
             console.error(`❌ Error: No user found with email: ${email}`);
@@ -45,7 +44,9 @@ const makeAdmin = async (email, role = "admin", notes = "") => {
         }
 
         // Check if already admin
-        const existingAdmin = await Admin.findOne({ userId: user._id });
+        const existingAdmin = await prisma.admin.findFirst({
+            where: { userId: user.id },
+        });
 
         if (existingAdmin) {
             if (existingAdmin.isActive) {
@@ -63,9 +64,13 @@ const makeAdmin = async (email, role = "admin", notes = "") => {
                 // Optionally update role if different
                 if (existingAdmin.role !== role) {
                     console.log(`Updating role from "${existingAdmin.role}" to "${role}"...`);
-                    existingAdmin.role = role;
-                    if (notes) existingAdmin.notes = notes;
-                    await existingAdmin.save();
+                    await prisma.admin.update({
+                        where: { id: existingAdmin.id },
+                        data: {
+                            role,
+                            notes: notes || existingAdmin.notes,
+                        },
+                    });
                     console.log("✅ Role updated successfully!\n");
                 }
 
@@ -73,30 +78,38 @@ const makeAdmin = async (email, role = "admin", notes = "") => {
             } else {
                 // Reactivate inactive admin
                 console.log("Reactivating inactive admin...");
-                existingAdmin.isActive = true;
-                existingAdmin.role = role;
-                if (notes) existingAdmin.notes = notes;
-                await existingAdmin.save();
+                await prisma.admin.update({
+                    where: { id: existingAdmin.id },
+                    data: {
+                        isActive: true,
+                        role,
+                        notes: notes || existingAdmin.notes,
+                    },
+                });
             }
         } else {
             // Create new admin record
-            await Admin.create({
-                userId: user._id,
-                role: role,
-                notes: notes || "Created via makeAdmin script",
-                permissions: {
-                    canManageUsers: true,
-                    canManageProjects: true,
-                    canManageAdmins: role === "super-admin",
-                    canViewStats: true,
+            await prisma.admin.create({
+                data: {
+                    userId: user.id,
+                    role,
+                    notes: notes || "Created via makeAdmin script",
+                    permissions: {
+                        canManageUsers: true,
+                        canManageProjects: true,
+                        canManageAdmins: role === "super-admin",
+                        canViewStats: true,
+                    },
                 },
             });
         }
 
         // Also set isAdmin flag in User model for backward compatibility
         if (!user.isAdmin) {
-            user.isAdmin = true;
-            await user.save();
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { isAdmin: true },
+            });
         }
 
         console.log("\n🎉 Successfully promoted user to admin!\n");
@@ -112,13 +125,17 @@ const makeAdmin = async (email, role = "admin", notes = "") => {
         console.log("─────────────────────────────────");
         
         // Show total admin count
-        const totalAdmins = await Admin.countDocuments({ isActive: true });
-        const superAdmins = await Admin.countDocuments({ isActive: true, role: "super-admin" });
+        const totalAdmins = await prisma.admin.count({ where: { isActive: true } });
+        const superAdmins = await prisma.admin.count({
+            where: { isActive: true, role: "super-admin" },
+        });
         console.log(`\n📊 Total Active Admins: ${totalAdmins} (${superAdmins} super-admin${superAdmins !== 1 ? 's' : ''})\n`);
 
+        await prisma.$disconnect();
         process.exit(0);
     } catch (error) {
         console.error("❌ Error:", error.message);
+        await prisma.$disconnect();
         process.exit(1);
     }
 };

@@ -1,5 +1,4 @@
-import mongoose from "mongoose";
-import Admin from "../models/Admin.js";
+import prisma from "../prismaClient.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -11,12 +10,32 @@ dotenv.config();
 
 const listAdmins = async () => {
     try {
-        // Connect to MongoDB
-        await mongoose.connect(process.env.DATABASE_URL || process.env.MONGO_URI);
-        console.log("✅ Connected to MongoDB\n");
+        await prisma.$connect();
+        console.log("✅ Connected to Postgres\n");
 
         // Get all active admins with user details
-        const admins = await Admin.getAllActiveAdmins();
+        const admins = await prisma.admin.findMany({
+            where: { isActive: true },
+            include: {
+                user: {
+                    select: {
+                        username: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        avatar: true,
+                        createdAt: true,
+                    },
+                },
+                createdBy: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
 
         if (admins.length === 0) {
             console.log("📭 No active admins found in the system");
@@ -29,7 +48,7 @@ const listAdmins = async () => {
         console.log("═".repeat(100));
 
         admins.forEach((admin, index) => {
-            const user = admin.userId;
+            const user = admin.user;
             console.log(`\n${index + 1}. ${user.firstName} ${user.lastName} (@${user.username})`);
             console.log("─".repeat(100));
             console.log(`   Email:          ${user.email}`);
@@ -72,9 +91,11 @@ const listAdmins = async () => {
         console.log(`   Super-Admins:         ${superAdmins}`);
         console.log(`   Regular Admins:       ${regularAdmins}\n`);
 
+        await prisma.$disconnect();
         process.exit(0);
     } catch (error) {
         console.error("❌ Error:", error.message);
+        await prisma.$disconnect();
         process.exit(1);
     }
 };
